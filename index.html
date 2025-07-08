@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prato Fiorito</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+    <h1>Prato Fiorito</h1>
+    <div id="menu">
+        <div class="top-left">
+            <img src="assets/icon-settings.svg" alt="Settings Icon" class="icon" id="settings-btn" />
+        </div>
+
+        <div class="top-right">
+            <img src="assets/icon-theme.svg" alt="Theme Icon" class="icon" id="theme-btn" />
+        </div>
+
+        <div class="container">
+            <img src="assets/icon-explosion.svg" class="symbol" alt="Game Symbol" />
+
+            <div id="difficulty-selector">
+                <img src="assets/icon-left-arrow.svg" class="icon" alt="<" id="left-arrow" hidden/>
+                <span id="difficulty-label">Easy</span>
+                <img src="assets/icon-right-arrow.svg" class="icon" alt=">" id="right-arrow"/>
+            </div>
+
+            <button id="new-game" class="btn game-btn">New Game</button>
+            <button id="resume" class="btn game-btn" disabled="True">Resume</button>
+        </div>
+    </div>
+
+    <div id="game-container"></div>
+
+    <script src="./script/game.js"></script>
+    <script src="./script/menu.js"></script>
+    <!-- <script type="module" src="./script/menu.js"></script> -->
+</body>
+
+</html>
