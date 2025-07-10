@@ -107,8 +107,8 @@ function eraseMap() {
             cell.children = null;
             cell.textContent = "";
             cell.style.background = "var(--accent-color)";
-            cell.style["font-size"] = "10px";
-            cell.textContent = `${getKey(x, y)}`;
+            // cell.style["font-size"] = "10px";
+            // cell.textContent = `${getKey(x, y)}`;
         }
     }
 }

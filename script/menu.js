@@ -47,9 +47,6 @@ rightBtn.addEventListener("click", () => {
 newGameBtn.addEventListener("click", () => {
     menuScreen.style.display = "none";
     gameScreen.style.display = "grid";
-
-    // const gameModule = await import('./game.js');
-    // gameModule.initGame();
 })
 
 resumeBtn.addEventListener("click", () => {
@@ -59,5 +56,5 @@ resumeBtn.addEventListener("click", () => {
 initMenu();
 
 /* DEBUG */
-// menuScreen.style.display = "none";
-// gameScreen.style.display = "grid";
+menuScreen.style.display = "none";
+gameScreen.style.display = "grid";
