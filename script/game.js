@@ -62,8 +62,6 @@ function debug(cell, x, y) {
 }
 
 function writeCell(cell, x, y) {
-    // console.log("writtenCell");
-
     const key = getKey(x + offsetX, y + offsetY);
 
     if (!checkedMap.get(key)) checkedMap.set(key, true);
@@ -109,6 +107,8 @@ function eraseMap() {
             cell.children = null;
             cell.textContent = "";
             cell.style.background = "var(--accent-color)";
+            cell.style["font-size"] = "10px";
+            cell.textContent = `${getKey(x, y)}`;
         }
     }
 }
@@ -117,9 +117,9 @@ function renderGrid() {
     let index = 0;
     for (let y = 0; y < visibleRows; y++) {
         for (let x = 0; x < visibleCols; x++) {
-            const cell = cells[index++];
-            cell.style.left = `${(x - 1) * cellSize}px`;
-            cell.style.top = `${(y - 1) * cellSize}px`;
+            const cell = cells[index++]; // [y][x];
+            cell.style.left = `${(x - 1) * cellSize + offsetX}px`;
+            cell.style.top = `${(y - 1) * cellSize + offsetY}px`;
             maybeGenerateBomb(x + offsetX, y + offsetY);
             if (checkedMap.has(getKey(x + offsetX, y + offsetY))) {
                 writeCell(cell, x, y);
@@ -141,7 +141,7 @@ function renderGrid() {
 renderGrid();
 
 window.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowRight") offsetX++;
+    if (e.key === "ArrowRight") offsetX += 0.10;
     if (e.key === "ArrowLeft") offsetX--;
     if (e.key === "ArrowUp") offsetY--;
     if (e.key === "ArrowDown") offsetY++;
@@ -154,6 +154,9 @@ let isDragging = false;
 let lastTouchX = 0;
 let lastTouchY = 0;
 
+let targetOffsetX = 0;
+let targetOffsetY = 0;
+
 window.addEventListener("touchstart", (e) => {
     if (e.touches.length === 1) {
         isDragging = true;
@@ -163,24 +166,52 @@ window.addEventListener("touchstart", (e) => {
 });
 
 window.addEventListener("touchmove", (e) => {
-    // if (!isDragging) return;
+    if (!isDragging) return;
+
     const touch = e.touches[0];
-    const dx = (touch.clientX - lastTouchX) * 1;
-    const dy = (touch.clientY - lastTouchY) * 1;
+    const dx = touch.clientX - lastTouchX;
+    const dy = touch.clientY - lastTouchY;
 
-    offsetX -= dx / cellSize;
-    offsetY -= dy / cellSize;
-
-    lastTouchX = touch.clientX;
-    lastTouchY = touch.clientY;
+    offsetX -= Math.round(dx / cellSize);
+    offsetY -= Math.round(dy / cellSize);
 
     eraseMap();
     renderGrid();
 
+    lastTouchX = touch.clientX;
+    lastTouchY = touch.clientY;
+
     e.preventDefault();
-    console.log(offsetX, offsetY);
 }, { passive: false });
 
 window.addEventListener("touchend", () => {
+    isDragging = false;
+});
+
+window.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    lastTouchX = e.clientX;
+    lastTouchY = e.clientY;
+});
+
+window.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+
+    const dx = e.clientX - lastTouchX;
+    const dy = e.clientY - lastTouchY;
+
+    offsetX -= Math.round(dx / cellSize);
+    offsetY -= Math.round(dy / cellSize);
+
+    eraseMap();
+    renderGrid();
+
+    lastTouchX = e.clientX;
+    lastTouchY = e.clientY;
+
+    e.preventDefault();
+});
+
+window.addEventListener("mouseup", () => {
     isDragging = false;
 });
