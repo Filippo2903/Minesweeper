@@ -56,5 +56,5 @@ resumeBtn.addEventListener("click", () => {
 initMenu();
 
 /* DEBUG */
-menuScreen.style.display = "none";
-gameScreen.style.display = "grid";
+// menuScreen.style.display = "none";
+// gameScreen.style.display = "grid";

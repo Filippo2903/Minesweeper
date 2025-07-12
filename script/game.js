@@ -1,3 +1,5 @@
+const bombSpawnProbability = 0.27;
+
 const container = document.getElementById("game-container");
 const cellSize = 40;
 const buffer = 2;
@@ -90,7 +92,7 @@ function initCell(x, y) {
 
 function maybeGenerateBomb(x, y) {
     if (!bombMap.has(getKey(x, y))) {
-        bombMap.set(getKey(x, y), Math.random() < 0.25);
+        bombMap.set(getKey(x, y), Math.random() < bombSpawnProbability);
     }
 }
 
