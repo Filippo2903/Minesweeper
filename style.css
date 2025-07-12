@@ -42,7 +42,7 @@ body {
     height: 100vh;
     align-items: center;
     position: relative;
-    transition: background-color 0.3s, color 0.3s;
+    /* transition: background-color 0.3s, color 0.3s; */
     text-align: center;
     touch-action: none;
 }
@@ -174,7 +174,7 @@ body {
     font-family: sans-serif;
     font-size: 24px;
     cursor: pointer;
-    transition: background-color 0.2s;
+    /* transition: background-color 0.2s; */
 }
 
 .cell:hover {
