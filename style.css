@@ -1,13 +1,12 @@
 * {
     margin: 0;
     padding: 0;
+    overflow: hidden;
     box-sizing: border-box;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
 }
-
-/************/
 
 :root {
     --bg-color: #0e0e0e;
@@ -42,11 +41,14 @@ body {
     flex-direction: column;
     height: 100vh;
     align-items: center;
-    padding: 1rem;
     position: relative;
     transition: background-color 0.3s, color 0.3s;
     text-align: center;
     touch-action: none;
+}
+
+.title {
+    margin: 1rem;
 }
 
 .top-right {
@@ -62,7 +64,6 @@ body {
 }
 
 .icon {
-
     color: var(--text-color);
     width: 24px;
     height: 24px;
@@ -80,8 +81,8 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 2rem;
-    margin-top: 8rem;
     height: 100vh;
 }
 
@@ -126,7 +127,20 @@ body {
     height: 100vh;
     overflow: hidden;
     background: var(--bg-color);
+    display: flex;
+    /* margin-top: 1rem; */
+    justify-content: center;
 }
+
+/* #game-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10000px;
+    height: 10000px;
+    transform: translate(0px, 0px);
+    transition: transform 0.1s linear;
+} */
 
 /* #game-container {
     display: flex;
@@ -134,7 +148,7 @@ body {
     justify-content: center;
 } */
 
-.cell {
+/* .cell {
     position: absolute;
     width: 40px;
     height: 40px;
@@ -143,6 +157,21 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    font-size: 24px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+} */
+
+.cell {
+    position: absolute;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--border-color);
+    background: var(--accent-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: sans-serif;
     font-size: 24px;
     cursor: pointer;
     transition: background-color 0.2s;
