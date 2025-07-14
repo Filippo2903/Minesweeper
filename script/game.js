@@ -1,6 +1,8 @@
 const bombSpawnProbability = 0.27;
 
 const container = document.getElementById("game-container");
+// const pointContainer = document.getElementById("")
+
 const cellSize = 40;
 const buffer = 2;
 
@@ -18,6 +20,8 @@ let offsetY = 0;
 
 let firstClick = true;
 
+let explosionCount = 0;
+
 // DA RIVEDERE PER SCROLL A METÀ CASELLA
 // const baseCol = Math.floor(offsetX / cellSize);
 // const baseRow = Math.floor(offsetY / cellSize);
@@ -26,7 +30,7 @@ function getKey(x, y) {
     return `${x},${y}`;
 }
 
-function checkSurroundings(x, y, f, limited = false) {
+function surroundings(x, y, f, limited = false) {
     const startY = limited ? Math.max(0, y - 1) : y - 1;
     const endY = limited ? Math.min(y + 1, totalRows - 1) : y + 1;
     const startX = limited ? Math.max(0, x - 1) : x - 1;
@@ -34,24 +38,69 @@ function checkSurroundings(x, y, f, limited = false) {
 
     for (let j = startY; j <= endY; j++) {
         for (let i = startX; i <= endX; i++) {
-            f(cells[j][i], i, j);
+            f(i, j);
         }
     }
 }
 
-function toggleFlag(cell, x, y) {
+function toggleFlag(x, y) {
+    if (firstClick) revealCell(x, y);
     const key = getKey(x + offsetX, y + offsetY);
 
     if (flagMap.has(key)) {
         flagMap.delete(key);
-        eraseCell(cell);
+        eraseCell(cells[y][x]);
         return;
     }
 
-    writeFlag(cell, x, y);
+    writeFlag(x, y);
 }
 
-function revealCell(cell, x, y) {
+function completeSurroundings(x, y) {
+    const key = getKey(x + offsetX, y + offsetY);
+
+    if (flagMap.has(key) || !checkedMap.has(key) || bombMap.get(key)) return;
+
+    let hiddenCellCount = 0;
+    let flagCount = 0;
+    surroundings(x + offsetX, y + offsetY, (i, j) => {
+        const tmpKey = getKey(i, j);
+        if (!checkedMap.has(tmpKey) && !flagMap.has(tmpKey)) {
+            hiddenCellCount++;
+        }
+        if (flagMap.has(tmpKey) || (bombMap.get(tmpKey) && checkedMap.has(tmpKey))) {
+            flagCount++;
+        }
+    });
+
+    const bombCount = Number(cells[y][x].innerHTML);
+
+    console.log(bombCount, flagCount, hiddenCellCount);
+
+    if (flagCount >= bombCount) {
+        surroundings(x + offsetX, y + offsetY, (i, j) => {
+            const tmpKey = getKey(i, j)
+
+            if (!checkedMap.has(tmpKey) && !flagMap.has(tmpKey)) {
+                checkedMap.set(tmpKey, true);
+            }
+        });
+
+        renderFrame();
+        return;
+    }
+
+    if (hiddenCellCount === bombCount - flagCount) {
+        surroundings(x, y, (i, j) => {
+            writeFlag(i, j);
+        });
+
+        renderFrame();
+        return;
+    }
+}
+
+function revealCell(x, y) {
     const key = getKey(x + offsetX, y + offsetY);
 
     if (checkedMap.has(key) || flagMap.has(key)) return;
@@ -59,7 +108,7 @@ function revealCell(cell, x, y) {
     checkedMap.set(key, true);
 
     if (firstClick) {
-        checkSurroundings(x + offsetX, y + offsetY, (_, i, j) => {
+        surroundings(x + offsetX, y + offsetY, (i, j) => {
             let key = getKey(i, j);
             if (bombMap.get(key)) bombMap.set(key, false);
         }, limited = true);
@@ -68,7 +117,7 @@ function revealCell(cell, x, y) {
         firstClick = false;
     }
 
-    writeCell(cell, x, y);
+    writeCell(x, y);
 }
 
 function initCell(x, y) {
@@ -76,12 +125,13 @@ function initCell(x, y) {
     cell.className = "cell";
 
     cell.onclick = () => {
-        toggleFlag(cell, x, y);
+        toggleFlag(x, y);
+        completeSurroundings(x, y);
     };
 
     cell.oncontextmenu = (e) => {
         e.preventDefault();
-        revealCell(cell, x, y);
+        revealCell(x, y);
     };
 
     container.appendChild(cell);
@@ -98,7 +148,7 @@ function maybeGenerateBomb(x, y) {
 
 function bombCount(x, y) {
     let count = 0;
-    checkSurroundings(x, y, (_, i, j) => {
+    surroundings(x, y, (i, j) => {
         if (bombMap.get(getKey(i, j))) {
             count++;
         }
@@ -123,7 +173,8 @@ function debug(cell, x, y) {
     }
 } */
 
-function writeFlag(cell, x, y) {
+function writeFlag(x, y) {
+    const cell = cells[y][x];
     const key = getKey(x + offsetX, y + offsetY);
 
     if (checkedMap.has(key)) return;
@@ -139,7 +190,8 @@ function writeFlag(cell, x, y) {
     cell.appendChild(img);
 }
 
-function writeCell(cell, x, y) {
+function writeCell(x, y) {
+    const cell = cells[y][x];
     eraseCell(cell);
 
     const key = getKey(x + offsetX, y + offsetY);
@@ -148,6 +200,8 @@ function writeCell(cell, x, y) {
     cell.style.cursor = "default";
 
     if (bombMap.get(key)) {
+        explosionCount++;
+
         const img = document.createElement("img");
         img.src = "assets/icon-explosion.svg";
         img.width = 35;
@@ -159,11 +213,11 @@ function writeCell(cell, x, y) {
     const count = bombCount(x + offsetX, y + offsetY);
 
     if (count === 0) {
-        checkSurroundings(x, y, (cell, i, j) => {
+        surroundings(x, y, (i, j) => {
             const key = getKey(i + offsetX, j + offsetY);
-            if (!checkedMap.has(key)) { // && !bombMap.get(getKey(i + offsetX, j + offsetY))) {
+            if (!checkedMap.has(key)) {
                 checkedMap.set(key, true);
-                writeCell(cell, i, j);
+                writeCell(i, j);
             }
         }, limited = true);
         return;
@@ -188,11 +242,11 @@ function renderCell(x, y) {
     const key = getKey(x + offsetX, y + offsetY);
 
     if (checkedMap.has(key)) {
-        writeCell(cell, x, y);
+        writeCell(x, y);
     }
 
     if (flagMap.has(key)) {
-        writeFlag(cell, x, y);
+        writeFlag(x, y);
     }
 }
 
@@ -211,6 +265,9 @@ function allCells(f) {
 }
 
 function renderFrame() {
+    console.log(explosionCount);
+    explosionCount = 0;
+
     allCells(eraseCell);
     allGrid(renderCell);
 }
