@@ -10,8 +10,8 @@ const totalCols = Math.ceil(window.innerWidth / cellSize) + buffer * 2;
 const totalRows = Math.ceil(window.innerHeight / cellSize) + buffer * 2;
 
 const bombMap = new Map();
-const checkedMap = new Map();
-const flagMap = new Map();
+const checkedCells = new Set();
+const flaggedCells = new Set();
 
 const cells = []; //[][]
 
@@ -30,6 +30,23 @@ function getKey(x, y) {
     return `${x},${y}`;
 }
 
+function toGlobal(x, y) {
+    return [x + offsetX, y + offsetY];
+}
+
+function getGlobalKey(x, y) {
+    return getKey(...toGlobal(x, y));
+}
+
+function allGrid(f) {
+    for (let y = 0; y < totalRows; y++) {
+        for (let x = 0; x < totalCols; x++) {
+            f(x, y);
+        }
+    }
+}
+
+// limited per ora inutile
 function surroundings(x, y, f, limited = false) {
     const startY = limited ? Math.max(0, y - 1) : y - 1;
     const endY = limited ? Math.min(y + 1, totalRows - 1) : y + 1;
@@ -43,95 +60,38 @@ function surroundings(x, y, f, limited = false) {
     }
 }
 
-function toggleFlag(x, y) {
-    if (firstClick) revealCell(x, y);
-    const key = getKey(x + offsetX, y + offsetY);
-
-    if (flagMap.has(key)) {
-        flagMap.delete(key);
-        eraseCell(cells[y][x]);
-        return;
-    }
-
-    writeFlag(x, y);
-}
-
-function completeSurroundings(x, y) {
-    const key = getKey(x + offsetX, y + offsetY);
-
-    if (flagMap.has(key) || !checkedMap.has(key) || bombMap.get(key)) return;
-
-    let hiddenCellCount = 0;
-    let flagCount = 0;
-    surroundings(x + offsetX, y + offsetY, (i, j) => {
-        const tmpKey = getKey(i, j);
-        if (!checkedMap.has(tmpKey) && !flagMap.has(tmpKey)) {
-            hiddenCellCount++;
-        }
-        if (flagMap.has(tmpKey) || (bombMap.get(tmpKey) && checkedMap.has(tmpKey))) {
-            flagCount++;
-        }
-    });
-
-    const bombCount = Number(cells[y][x].innerHTML);
-
-    console.log(bombCount, flagCount, hiddenCellCount);
-
-    if (flagCount >= bombCount) {
-        surroundings(x + offsetX, y + offsetY, (i, j) => {
-            const tmpKey = getKey(i, j)
-
-            if (!checkedMap.has(tmpKey) && !flagMap.has(tmpKey)) {
-                checkedMap.set(tmpKey, true);
-            }
-        });
-
-        renderFrame();
-        return;
-    }
-
-    if (hiddenCellCount === bombCount - flagCount) {
-        surroundings(x, y, (i, j) => {
-            writeFlag(i, j);
-        });
-
-        renderFrame();
-        return;
-    }
-}
-
-function revealCell(x, y) {
-    const key = getKey(x + offsetX, y + offsetY);
-
-    if (checkedMap.has(key) || flagMap.has(key)) return;
-
-    checkedMap.set(key, true);
-
-    if (firstClick) {
-        surroundings(x + offsetX, y + offsetY, (i, j) => {
-            let key = getKey(i, j);
-            if (bombMap.get(key)) bombMap.set(key, false);
-        }, limited = true);
-
-
-        firstClick = false;
-    }
-
-    writeCell(x, y);
-}
-
 function initCell(x, y) {
     const cell = document.createElement("div");
     cell.className = "cell";
 
+    cell.style.left = `${(x - 1) * cellSize}px`;
+    cell.style.top = `${(y - 1) * cellSize}px`;
+
     cell.onclick = () => {
-        toggleFlag(x, y);
-        completeSurroundings(x, y);
+        if (firstClick) {
+            clearZone(x, y);
+            printCell(x, y);
+            renderFrame();
+            firstClick = false;
+            return;
+        }
+
+        const key = getGlobalKey(x, y);
+
+        if (!checkedCells.has(key))
+            toggleFlag(x, y);
+
+        else if (!bombMap.get(key))
+            completeSurroundings(x, y);
     };
 
     cell.oncontextmenu = (e) => {
         e.preventDefault();
-        revealCell(x, y);
+        const key = getGlobalKey(x, y);
+        if (!checkedCells.has(key) && !flaggedCells.has(key)) {
+            printCell(x, y);
+            renderFrame();
+        }
     };
 
     container.appendChild(cell);
@@ -141,15 +101,15 @@ function initCell(x, y) {
 }
 
 function maybeGenerateBomb(x, y) {
-    if (!bombMap.has(getKey(x, y))) {
-        bombMap.set(getKey(x, y), Math.random() < bombSpawnProbability);
-    }
+    bombMap.set(getGlobalKey(x, y), Math.random() < bombSpawnProbability);
 }
 
 function bombCount(x, y) {
     let count = 0;
     surroundings(x, y, (i, j) => {
-        if (bombMap.get(getKey(i, j))) {
+        const key = getGlobalKey(i, j);
+        if (!bombMap.has(key)) maybeGenerateBomb(i, j);
+        if (bombMap.get(key)) {
             count++;
         }
     });
@@ -157,29 +117,8 @@ function bombCount(x, y) {
     return count;
 }
 
-/*
-function debug(cell, x, y) {
-    const key = getKey(x + offsetX, y + offsetY);
-
-    if (bombMap.get(key)) {
-        cell.textContent = "b";
-        return;
-    }
-
-    count = bombCount(x + offsetX, y + offsetY);
-
-    if (count === 0) {
-        cell.textContent = "0";
-    }
-} */
-
 function writeFlag(x, y) {
     const cell = cells[y][x];
-    const key = getKey(x + offsetX, y + offsetY);
-
-    if (checkedMap.has(key)) return;
-
-    flagMap.set(key, true);
 
     cell.style.background = "var(--text-color)";
 
@@ -190,11 +129,50 @@ function writeFlag(x, y) {
     cell.appendChild(img);
 }
 
-function writeCell(x, y) {
-    const cell = cells[y][x];
-    eraseCell(cell);
+function toggleFlag(x, y) {
+    const key = getGlobalKey(x, y);
 
-    const key = getKey(x + offsetX, y + offsetY);
+    if (flaggedCells.has(key)) {
+        eraseCell(x, y);
+        flaggedCells.delete(key);
+        return;
+    }
+
+    flaggedCells.add(key);
+    writeFlag(x, y);
+}
+
+function revealConnectedZeros(x, y) {
+    const queue = [[x, y]];
+    const MAX_ITERATIONS = 5000;
+    let iterations = 0;
+
+    while (queue.length > 0 && iterations < MAX_ITERATIONS) {
+        const [queueX, queueY] = queue.shift();
+        const key = getGlobalKey(queueX, queueY);
+
+        checkedCells.add(key);
+        const count = bombCount(queueX, queueY);
+        iterations++;
+
+        if (count === 0) {
+            surroundings(queueX, queueY, (i, j) => {
+                const neighborKey = getGlobalKey(i, j);
+                if (!checkedCells.has(neighborKey)) {
+                    queue.push([i, j]);
+                }
+            });
+        }
+    }
+}
+
+
+function printCell(x, y) {
+    const key = getGlobalKey(x, y);
+
+    if (!checkedCells.has(key)) checkedCells.add(key);
+
+    const cell = cells[y][x];
 
     cell.style.background = "var(--border-color)";
     cell.style.cursor = "default";
@@ -210,67 +188,110 @@ function writeCell(x, y) {
         return;
     }
 
-    const count = bombCount(x + offsetX, y + offsetY);
+    const count = bombCount(x, y);
 
     if (count === 0) {
-        surroundings(x, y, (i, j) => {
-            const key = getKey(i + offsetX, j + offsetY);
-            if (!checkedMap.has(key)) {
-                checkedMap.set(key, true);
-                writeCell(i, j);
-            }
-        }, limited = true);
+        revealConnectedZeros(x, y);
+        // console.log("dada");
+        // renderFrame();
         return;
     }
 
     cell.textContent = count;
 }
 
-function eraseCell(cell) {
+function clearZone(x, y) {
+    surroundings(...toGlobal(x, y), (i, j) => {
+        let key = getKey(i, j);
+        if (bombMap.get(key)) bombMap.set(key, false);
+    });
+}
+
+function completeSurroundings(x, y) {
+    let hiddenCellCount = 0;
+    let discoveredBombsCount = 0;
+    surroundings(x, y, (i, j) => {
+        const neighborKey = getGlobalKey(i, j);
+        if (!checkedCells.has(neighborKey) && !flaggedCells.has(neighborKey)) {
+            hiddenCellCount++;
+        }
+        if (flaggedCells.has(neighborKey) || (bombMap.get(neighborKey) && checkedCells.has(neighborKey))) {
+            discoveredBombsCount++;
+        }
+    });
+
+    const neededFlags = Number(cells[y][x].innerHTML);
+
+    if (discoveredBombsCount >= neededFlags) {
+        surroundings(x, y, (i, j) => {
+            const neighborKey = getGlobalKey(i, j)
+
+            if (!checkedCells.has(neighborKey) && !flaggedCells.has(neighborKey)) {
+                checkedCells.add(neighborKey);
+            }
+        });
+
+        renderFrame();
+        return;
+    }
+
+    if (hiddenCellCount === neededFlags - discoveredBombsCount) {
+        surroundings(x, y, (i, j) => {
+            const key = getGlobalKey(i, j);
+            if (!checkedCells.has(key) && !flaggedCells.has(key))
+                toggleFlag(i, j);
+        });
+
+        renderFrame();
+        return;
+    }
+}
+
+function eraseCell(x, y) {
+    const cell = cells[y][x];
     cell.innerHTML = "";
     cell.textContent = "";
     cell.style.background = "var(--accent-color)";
 }
 
 function renderCell(x, y) {
-    const cell = cells[y][x];
-    cell.style.left = `${(x - 1) * cellSize}px`;
-    cell.style.top = `${(y - 1) * cellSize}px`;
+    const key = getGlobalKey(x, y);
 
-    maybeGenerateBomb(x + offsetX, y + offsetY);
+    if (!bombMap.has(key)) maybeGenerateBomb(x, y);
 
-    const key = getKey(x + offsetX, y + offsetY);
-
-    if (checkedMap.has(key)) {
-        writeCell(x, y);
-    }
-
-    if (flagMap.has(key)) {
+    if (checkedCells.has(key)) {
+        printCell(x, y);
+    } else if (flaggedCells.has(key)) {
         writeFlag(x, y);
     }
 }
 
-function allGrid(f) {
-    for (let y = 0; y < totalRows; y++) {
-        for (let x = 0; x < totalCols; x++) {
-            f(x, y);
-        }
-    }
-}
-
-function allCells(f) {
-    cells.forEach(cellsRow => {
-        cellsRow.forEach(cell => f(cell));
-    });
-}
-
 function renderFrame() {
-    console.log(explosionCount);
     explosionCount = 0;
 
-    allCells(eraseCell);
-    allGrid(renderCell);
+    allGrid(eraseCell);
+    // allGrid(debug);
+    requestAnimationFrame(() => allGrid(renderCell));
 }
+
+/* DEBUG 
+function debug(x, y) {
+    const cell = cells[y][x];
+    const key = getGlobalKey(x, y);
+
+    cell.style.fontSize = "10px";
+    cell.textContent = key;
+    // if (bombMap.get(key)) {
+    //     cell.textContent = "b";
+    //     return;
+    // }
+
+    // count = bombCount(...toGlobal(x, y));
+
+    // if (count === 0) {
+    //     cell.textContent = "0";
+    // }
+} */
 
 allGrid(initCell);
 allGrid(renderCell);
@@ -279,15 +300,15 @@ allGrid(renderCell);
 function move(dx, dy) {
     const erasing = 0.04;
 
-    // if (Math.round(dx * erasing) === 0 && Math.round(dy * erasing) === 0) return;
+    if (Math.round(dx * erasing) === 0 && Math.round(dy * erasing) === 0) return;
 
     offsetX += Math.round(dx * erasing);
     offsetY += Math.round(dy * erasing);
 
-    requestAnimationFrame(renderFrame);
+    renderFrame();
 }
 
-container.addEventListener("keydown", (e) => {
+window.addEventListener("keydown", (e) => {
     const step = 25;
     if (e.key === "ArrowRight") move(step, 0);
     if (e.key === "ArrowLeft") move(-step, 0);
