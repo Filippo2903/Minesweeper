@@ -1,10 +1,13 @@
 const container = document.getElementById("game-container");
-const pointContainer = document.getElementById("point-textbox");
+const scoreContainer = document.getElementById("score-textbox");
 
 const BOMB_SPAWN_PROBABILITY = 0.27;
 
 const CELL_SIZE = 40;
 const BUFFER = 2;
+
+const POINTS_PER_CELL = 100;
+const POINTS_PER_BOMB = 500;
 
 const totalCols = Math.ceil(window.innerWidth / CELL_SIZE) + BUFFER * 2;
 const totalRows = Math.ceil(window.innerHeight / CELL_SIZE) + BUFFER * 2;
@@ -12,6 +15,7 @@ const totalRows = Math.ceil(window.innerHeight / CELL_SIZE) + BUFFER * 2;
 const bombMap = new Map();
 const checkedCells = new Set();
 const flaggedCells = new Set();
+const checkedZero = new Set();
 
 /** @type {HTMLDivElement[][]} */
 const cells = [];
@@ -21,7 +25,7 @@ let offsetY = 0;
 
 let firstClick = true;
 
-let explosionCount = 0;
+let score = 0;
 
 // TODO: DA RIVEDERE PER SCROLL A METÀ CASELLA
 // const baseCol = Math.floor(offsetX / CELL_SIZE);
@@ -45,6 +49,10 @@ function allGrid(f) {
             f(x, y);
         }
     }
+}
+
+function setScore() {
+    scoreContainer.innerHTML = score;
 }
 
 //? limited per ora inutile
@@ -71,8 +79,7 @@ function initCell(x, y) {
     cell.onclick = () => {
         if (firstClick) {
             clearZone(x, y);
-            printCell(x, y);
-            renderFrame();
+            showCell(x, y);
             firstClick = false;
             return;
         }
@@ -90,8 +97,7 @@ function initCell(x, y) {
         e.preventDefault();
         const key = getGlobalKey(x, y);
         if (!checkedCells.has(key) && !flaggedCells.has(key)) {
-            printCell(x, y);
-            renderFrame();
+            showCell(x, y);
         }
     };
 
@@ -144,14 +150,17 @@ function toggleFlag(x, y) {
 
 function revealConnectedZeros(x, y) {
     const queue = [[x, y]];
-    const MAX_ITERATIONS = 5000;
+    const MAX_ITERATIONS = 100000;
     let iterations = 0;
 
     while (queue.length > 0 && iterations < MAX_ITERATIONS) {
         const [queueX, queueY] = queue.shift();
+
         const key = getGlobalKey(queueX, queueY);
+        if (checkedCells.has(key)) continue;
 
         checkedCells.add(key);
+
         const count = bombCount(queueX, queueY);
         iterations++;
 
@@ -166,11 +175,31 @@ function revealConnectedZeros(x, y) {
     }
 }
 
-// TODO: Capire perchè viene chiamata migliaia di volte al click
-function printCell(x, y) {
-    const key = getGlobalKey(x, y);
+function showCell(x, y) {
+    if (bombMap.get(getGlobalKey(x, y))) {
+        score -= POINTS_PER_BOMB;
+    } else {
+        score += POINTS_PER_CELL;
+    }
+    setScore();
+    
+    const count = bombCount(x, y);
+    if (count === 0) {
+        revealConnectedZeros(x, y);
+        renderFrame();
+        return;
+    }
 
+    const key = getGlobalKey(x, y);
     if (!checkedCells.has(key)) checkedCells.add(key);
+
+    printCell(x, y);
+}
+
+// TODO: Capire perchè viene chiamata migliaia di volte al click
+function printCell(x, y, count = 0) {
+    // console.log("print");
+    const key = getGlobalKey(x, y);
 
     const cell = cells[y][x];
 
@@ -178,8 +207,6 @@ function printCell(x, y) {
     cell.style.cursor = "default";
 
     if (bombMap.get(key)) {
-        explosionCount++;
-
         const img = document.createElement("img");
         img.src = "assets/icon-explosion.svg";
         img.width = 35;
@@ -188,16 +215,8 @@ function printCell(x, y) {
         return;
     }
 
-    const count = bombCount(x, y);
-
-    if (count === 0) {
-        revealConnectedZeros(x, y);
-        // console.log("dada");
-        // renderFrame();
-        return;
-    }
-
-    cell.textContent = count;
+    // if (!checkedCells.has(key)) checkedCells.add(key);
+    cell.textContent = bombCount(x, y) || "";
 }
 
 function clearZone(x, y) {
@@ -220,22 +239,24 @@ function completeSurroundings(x, y) {
         }
     });
 
-    const neededFlags = Number(cells[y][x].innerHTML);
+    const numBombs = Number(cells[y][x].innerHTML);
 
-    if (discoveredBombsCount >= neededFlags) {
+    if (discoveredBombsCount >= numBombs) {
+        let discoveredCellsCount = 0;
         surroundings(x, y, (i, j) => {
             const neighborKey = getGlobalKey(i, j)
 
             if (!checkedCells.has(neighborKey) && !flaggedCells.has(neighborKey)) {
                 checkedCells.add(neighborKey);
+                discoveredCellsCount++;
             }
         });
 
         renderFrame();
-        return;
-    }
 
-    if (hiddenCellCount === neededFlags - discoveredBombsCount) {
+        score += discoveredCellsCount * POINTS_PER_CELL;
+        setScore();
+    } else if (hiddenCellCount === numBombs - discoveredBombsCount) {
         surroundings(x, y, (i, j) => {
             const key = getGlobalKey(i, j);
             if (!checkedCells.has(key) && !flaggedCells.has(key))
@@ -243,7 +264,6 @@ function completeSurroundings(x, y) {
         });
 
         renderFrame();
-        return;
     }
 }
 
@@ -266,8 +286,6 @@ function renderCell(x, y) {
 }
 
 function renderFrame() {
-    explosionCount = 0; //! Non dovrebbe servire, necessità di un printCell al click e un printCell del renderCell
-
     allGrid(eraseCell);
     //// allGrid(debug);
     requestAnimationFrame(() => allGrid(renderCell));
