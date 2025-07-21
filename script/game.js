@@ -1,19 +1,20 @@
-const bombSpawnProbability = 0.27;
-
 const container = document.getElementById("game-container");
-// const pointContainer = document.getElementById("")
+const pointContainer = document.getElementById("point-textbox");
 
-const cellSize = 40;
-const buffer = 2;
+const BOMB_SPAWN_PROBABILITY = 0.27;
 
-const totalCols = Math.ceil(window.innerWidth / cellSize) + buffer * 2;
-const totalRows = Math.ceil(window.innerHeight / cellSize) + buffer * 2;
+const CELL_SIZE = 40;
+const BUFFER = 2;
+
+const totalCols = Math.ceil(window.innerWidth / CELL_SIZE) + BUFFER * 2;
+const totalRows = Math.ceil(window.innerHeight / CELL_SIZE) + BUFFER * 2;
 
 const bombMap = new Map();
 const checkedCells = new Set();
 const flaggedCells = new Set();
 
-const cells = []; //[][]
+/** @type {HTMLDivElement[][]} */
+const cells = [];
 
 let offsetX = 0;
 let offsetY = 0;
@@ -22,9 +23,9 @@ let firstClick = true;
 
 let explosionCount = 0;
 
-// DA RIVEDERE PER SCROLL A METÀ CASELLA
-// const baseCol = Math.floor(offsetX / cellSize);
-// const baseRow = Math.floor(offsetY / cellSize);
+// TODO: DA RIVEDERE PER SCROLL A METÀ CASELLA
+// const baseCol = Math.floor(offsetX / CELL_SIZE);
+// const baseRow = Math.floor(offsetY / CELL_SIZE);
 
 function getKey(x, y) {
     return `${x},${y}`;
@@ -46,7 +47,7 @@ function allGrid(f) {
     }
 }
 
-// limited per ora inutile
+//? limited per ora inutile
 function surroundings(x, y, f, limited = false) {
     const startY = limited ? Math.max(0, y - 1) : y - 1;
     const endY = limited ? Math.min(y + 1, totalRows - 1) : y + 1;
@@ -64,8 +65,8 @@ function initCell(x, y) {
     const cell = document.createElement("div");
     cell.className = "cell";
 
-    cell.style.left = `${(x - 1) * cellSize}px`;
-    cell.style.top = `${(y - 1) * cellSize}px`;
+    cell.style.left = `${(x - 1) * CELL_SIZE}px`;
+    cell.style.top = `${(y - 1) * CELL_SIZE}px`;
 
     cell.onclick = () => {
         if (firstClick) {
@@ -96,12 +97,11 @@ function initCell(x, y) {
 
     container.appendChild(cell);
 
-    if (!cells[y]) cells[y] = [];
-    cells[y].push(cell);
+    (cells[y] ??= []).push(cell);
 }
 
 function maybeGenerateBomb(x, y) {
-    bombMap.set(getGlobalKey(x, y), Math.random() < bombSpawnProbability);
+    bombMap.set(getGlobalKey(x, y), Math.random() < BOMB_SPAWN_PROBABILITY);
 }
 
 function bombCount(x, y) {
@@ -166,7 +166,7 @@ function revealConnectedZeros(x, y) {
     }
 }
 
-
+// TODO: Capire perchè viene chiamata migliaia di volte al click
 function printCell(x, y) {
     const key = getGlobalKey(x, y);
 
@@ -250,7 +250,6 @@ function completeSurroundings(x, y) {
 function eraseCell(x, y) {
     const cell = cells[y][x];
     cell.innerHTML = "";
-    cell.textContent = "";
     cell.style.background = "var(--accent-color)";
 }
 
@@ -267,10 +266,10 @@ function renderCell(x, y) {
 }
 
 function renderFrame() {
-    explosionCount = 0;
+    explosionCount = 0; //! Non dovrebbe servire, necessità di un printCell al click e un printCell del renderCell
 
     allGrid(eraseCell);
-    // allGrid(debug);
+    //// allGrid(debug);
     requestAnimationFrame(() => allGrid(renderCell));
 }
 
