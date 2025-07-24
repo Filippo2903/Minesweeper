@@ -3,40 +3,36 @@ const scoreContainer = document.getElementById("score-textbox");
 
 const BOMB_SPAWN_PROBABILITY = 0.27;
 
+/** @type {HTMLDivElement[][]} */
+const cells = [];
+
 const CELL_SIZE = 40;
 const BUFFER = 2;
 
-const POINTS_PER_CELL = 100;
-const POINTS_PER_BOMB = 500;
-
 const totalCols = Math.ceil(window.innerWidth / CELL_SIZE) + BUFFER * 2;
 const totalRows = Math.ceil(window.innerHeight / CELL_SIZE) + BUFFER * 2;
+
+let offsetX = 0;
+let offsetY = 0;
+
+const POINTS_PER_CELL = 100;
+const POINTS_PER_BOMB = -500;
+
+let score = 0;
 
 const bombMap = new Map();
 const checkedCells = new Set();
 const flaggedCells = new Set();
 const checkedZero = new Set();
 
-/** @type {HTMLDivElement[][]} */
-const cells = [];
-
-let offsetX = 0;
-let offsetY = 0;
-
 let firstClick = true;
-
-let score = 0;
-
-// TODO: DA RIVEDERE PER SCROLL A METÀ CASELLA
-// const baseCol = Math.floor(offsetX / CELL_SIZE);
-// const baseRow = Math.floor(offsetY / CELL_SIZE);
 
 function getKey(x, y) {
     return `${x},${y}`;
 }
 
 function toGlobal(x, y) {
-    return [x + offsetX, y + offsetY];
+    return [Math.floor(x + offsetX), Math.floor(y + offsetY)];
 }
 
 function getGlobalKey(x, y) {
@@ -51,7 +47,9 @@ function allGrid(f) {
     }
 }
 
-function setScore() {
+//? dovrei dare punti per le aree di 0?
+function setScore(points) {
+    score += points;
     scoreContainer.innerHTML = score;
 }
 
@@ -160,6 +158,7 @@ function revealConnectedZeros(x, y) {
         if (checkedCells.has(key)) continue;
 
         checkedCells.add(key);
+        printCell(queueX, queueY);
 
         const count = bombCount(queueX, queueY);
         iterations++;
@@ -176,17 +175,11 @@ function revealConnectedZeros(x, y) {
 }
 
 function showCell(x, y) {
-    if (bombMap.get(getGlobalKey(x, y))) {
-        score -= POINTS_PER_BOMB;
-    } else {
-        score += POINTS_PER_CELL;
-    }
-    setScore();
-    
+    setScore(bombMap.get(getGlobalKey(x, y)) ? POINTS_PER_BOMB : POINTS_PER_CELL);
+
     const count = bombCount(x, y);
     if (count === 0) {
         revealConnectedZeros(x, y);
-        renderFrame();
         return;
     }
 
@@ -196,9 +189,7 @@ function showCell(x, y) {
     printCell(x, y);
 }
 
-// TODO: Capire perchè viene chiamata migliaia di volte al click
-function printCell(x, y, count = 0) {
-    // console.log("print");
+function printCell(x, y) {
     const key = getGlobalKey(x, y);
 
     const cell = cells[y][x];
@@ -215,7 +206,6 @@ function printCell(x, y, count = 0) {
         return;
     }
 
-    // if (!checkedCells.has(key)) checkedCells.add(key);
     cell.textContent = bombCount(x, y) || "";
 }
 
@@ -247,23 +237,16 @@ function completeSurroundings(x, y) {
             const neighborKey = getGlobalKey(i, j)
 
             if (!checkedCells.has(neighborKey) && !flaggedCells.has(neighborKey)) {
-                checkedCells.add(neighborKey);
+                showCell(i, j);
                 discoveredCellsCount++;
             }
         });
-
-        renderFrame();
-
-        score += discoveredCellsCount * POINTS_PER_CELL;
-        setScore();
     } else if (hiddenCellCount === numBombs - discoveredBombsCount) {
         surroundings(x, y, (i, j) => {
             const key = getGlobalKey(i, j);
             if (!checkedCells.has(key) && !flaggedCells.has(key))
                 toggleFlag(i, j);
         });
-
-        renderFrame();
     }
 }
 
@@ -271,6 +254,14 @@ function eraseCell(x, y) {
     const cell = cells[y][x];
     cell.innerHTML = "";
     cell.style.background = "var(--accent-color)";
+}
+
+function updateCellPosition(x, y) {
+    const cell = cells[y][x];
+    const fractionalOffsetX = offsetX % 1;
+    const fractionalOffsetY = offsetY % 1;
+    cell.style.left = `${(x - BUFFER - fractionalOffsetX) * CELL_SIZE}px`;
+    cell.style.top = `${(y - BUFFER - fractionalOffsetY) * CELL_SIZE}px`;
 }
 
 function renderCell(x, y) {
@@ -285,13 +276,17 @@ function renderCell(x, y) {
     }
 }
 
+//TODO: ottimizzazione renderFrame
 function renderFrame() {
-    allGrid(eraseCell);
-    //// allGrid(debug);
+    allGrid((x, y) => {
+        eraseCell(x, y);
+        updateCellPosition(x, y);
+        // debug(x, y);
+    });
     requestAnimationFrame(() => allGrid(renderCell));
 }
 
-/* DEBUG 
+/* DEBUG */
 function debug(x, y) {
     const cell = cells[y][x];
     const key = getGlobalKey(x, y);
@@ -308,7 +303,7 @@ function debug(x, y) {
     // if (count === 0) {
     //     cell.textContent = "0";
     // }
-} */
+}
 
 allGrid(initCell);
 allGrid(renderCell);
@@ -319,8 +314,8 @@ function move(dx, dy) {
 
     if (Math.round(dx * erasing) === 0 && Math.round(dy * erasing) === 0) return;
 
-    offsetX += Math.round(dx * erasing);
-    offsetY += Math.round(dy * erasing);
+    offsetX += dx * erasing;
+    offsetY += dy * erasing;
 
     renderFrame();
 }
