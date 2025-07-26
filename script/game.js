@@ -4,13 +4,19 @@ const scoreContainer = document.getElementById("score-textbox");
 const BOMB_SPAWN_PROBABILITY = 0.27;
 
 /** @type {HTMLDivElement[][]} */
-const cells = [];
+let cells = [];
 
-const CELL_SIZE = 40;
-const BUFFER = 2;
+let CELL_SIZE = 40;
+const BUFFER = 1;
+const BUFFER_FOR_DEBUG = 0;
 
-const totalCols = Math.ceil(window.innerWidth / CELL_SIZE) + BUFFER * 2;
-const totalRows = Math.ceil(window.innerHeight / CELL_SIZE) + BUFFER * 2;
+
+const style = window.getComputedStyle(scoreContainer.parentElement);
+let totalCols = Math.ceil(window.innerWidth / CELL_SIZE) + BUFFER;
+let totalRows = Math.ceil((window.innerHeight - scoreContainer.parentElement.offsetHeight - parseFloat(style.margin) * 2) / CELL_SIZE) + BUFFER;
+/* DEBUG */
+// let totalCols = Math.ceil(1200 / CELL_SIZE) + BUFFER;
+// let totalRows = Math.ceil(840 / CELL_SIZE) + BUFFER;
 
 let offsetX = 0;
 let offsetY = 0;
@@ -27,21 +33,34 @@ const checkedZero = new Set();
 
 let firstClick = true;
 
+let isDragging = false;
+let lastX, lastY;
+
+let scale = 1, currentScale;
+let pinchStartDistance = null, pinchStartZoom;
+
 function getKey(x, y) {
     return `${x},${y}`;
 }
 
 function toGlobal(x, y) {
-    return [Math.floor(x + offsetX), Math.floor(y + offsetY)];
+    return [Math.floor((x + offsetX)), Math.floor((y + offsetY))];
 }
 
 function getGlobalKey(x, y) {
     return getKey(...toGlobal(x, y));
 }
 
-function allGrid(f) {
+function allGrid(f, onlyPrinted = false) {
     for (let y = 0; y < totalRows; y++) {
         for (let x = 0; x < totalCols; x++) {
+            if (onlyPrinted) {
+                const key = getGlobalKey(x, y);
+                if (!checkedCells.has(key) && !flaggedCells.has(key)) {
+                    continue;
+                }
+            }
+
             f(x, y);
         }
     }
@@ -68,21 +87,29 @@ function surroundings(x, y, f, limited = false) {
 }
 
 function initCell(x, y) {
+    if (cells[y] && cells[y][x] !== undefined) return;
+
     const cell = document.createElement("div");
     cell.className = "cell";
 
-    cell.style.left = `${(x - 1) * CELL_SIZE}px`;
-    cell.style.top = `${(y - 1) * CELL_SIZE}px`;
+    cell.style.left = `${(x + BUFFER_FOR_DEBUG) * CELL_SIZE}px`;
+    cell.style.top = `${(y + BUFFER_FOR_DEBUG) * CELL_SIZE}px`;
 
+    cell.style.width = `${CELL_SIZE}px`;
+    cell.style.height = `${CELL_SIZE}px`;
+    cell.style.fontSize = `${CELL_SIZE * 0.6}px`;
+
+    if (!bombMap.has(getGlobalKey(x, y))) maybeGenerateBomb(x, y);
+
+    const key = getGlobalKey(x, y);
     cell.onclick = () => {
+        if (isDragging) return;
         if (firstClick) {
             clearZone(x, y);
             showCell(x, y);
             firstClick = false;
             return;
         }
-
-        const key = getGlobalKey(x, y);
 
         if (!checkedCells.has(key))
             toggleFlag(x, y);
@@ -93,7 +120,6 @@ function initCell(x, y) {
 
     cell.oncontextmenu = (e) => {
         e.preventDefault();
-        const key = getGlobalKey(x, y);
         if (!checkedCells.has(key) && !flaggedCells.has(key)) {
             showCell(x, y);
         }
@@ -258,10 +284,60 @@ function eraseCell(x, y) {
 
 function updateCellPosition(x, y) {
     const cell = cells[y][x];
-    const fractionalOffsetX = offsetX % 1;
-    const fractionalOffsetY = offsetY % 1;
-    cell.style.left = `${(x - BUFFER - fractionalOffsetX) * CELL_SIZE}px`;
-    cell.style.top = `${(y - BUFFER - fractionalOffsetY) * CELL_SIZE}px`;
+    const fractionalOffsetX = (offsetX % 1 + 1) % 1;
+    const fractionalOffsetY = (offsetY % 1 + 1) % 1;
+    cell.style.left = `${(x - fractionalOffsetX) * CELL_SIZE + BUFFER_FOR_DEBUG * 40}px`;
+    cell.style.top = `${(y - fractionalOffsetY) * CELL_SIZE + BUFFER_FOR_DEBUG * 40}px`;
+}
+
+function updateGridDimension() {
+    const oldTotalCols = totalCols;
+    const oldTotalRows = totalRows;
+
+    /* DEBUG */
+    // totalCols = Math.ceil(1200 / CELL_SIZE) + BUFFER;
+    // totalRows = Math.ceil(840 / CELL_SIZE) + BUFFER;
+    totalCols = Math.ceil(window.innerWidth / CELL_SIZE) + BUFFER;
+    totalRows = Math.ceil((window.innerHeight - scoreContainer.parentElement.offsetHeight - parseFloat(style.margin) * 2) / CELL_SIZE) + BUFFER;
+
+    if (oldTotalCols === totalCols && oldTotalRows === totalRows) return;
+
+    if (oldTotalCols < totalCols || oldTotalRows < totalRows) {
+        for (let j = 0; j < oldTotalRows; j++) {
+            for (let i = oldTotalCols; i < totalCols; i++) {
+                initCell(i, j);
+            }
+        }
+
+        for (let j = oldTotalRows; j < totalRows; j++) {
+            for (let i = 0; i < totalCols; i++) {
+                initCell(i, j);
+            }
+        }
+    } else if (oldTotalCols > totalCols || oldTotalRows > totalRows) {
+        for (let j = 0; j < totalRows; j++) {
+            for (let i = totalCols; i < oldTotalCols; i++) {
+                cells[j][i].remove();
+            }
+        }
+
+        for (let j = totalRows; j < oldTotalRows; j++) {
+            for (let i = 0; i < oldTotalCols; i++) {
+                cells[j][i].remove();
+            }
+        }
+
+        cells = cells.slice(0, totalRows).map(row => row.slice(0, totalCols));
+    }
+
+    allGrid((x, y) => {
+        const cell = cells[y][x];
+        cell.style.width = `${CELL_SIZE}px`;
+        cell.style.height = `${CELL_SIZE}px`;
+        cell.style.fontSize = `${CELL_SIZE * 0.6}px`;
+
+        updateCellPosition(x, y);
+    });
 }
 
 function renderCell(x, y) {
@@ -274,16 +350,6 @@ function renderCell(x, y) {
     } else if (flaggedCells.has(key)) {
         writeFlag(x, y);
     }
-}
-
-//TODO: ottimizzazione renderFrame
-function renderFrame() {
-    allGrid((x, y) => {
-        eraseCell(x, y);
-        updateCellPosition(x, y);
-        // debug(x, y);
-    });
-    requestAnimationFrame(() => allGrid(renderCell));
 }
 
 /* DEBUG */
@@ -305,56 +371,144 @@ function debug(x, y) {
     // }
 }
 
-allGrid(initCell);
-allGrid(renderCell);
-
-
 function move(dx, dy) {
-    const erasing = 0.04;
+    allGrid(eraseCell, true);
 
-    if (Math.round(dx * erasing) === 0 && Math.round(dy * erasing) === 0) return;
+    offsetX += dx / CELL_SIZE;
+    offsetY += dy / CELL_SIZE;
 
-    offsetX += dx * erasing;
-    offsetY += dy * erasing;
-
-    renderFrame();
+    allGrid(updateCellPosition);
+    requestAnimationFrame(() => allGrid(renderCell));
 }
 
 window.addEventListener("keydown", (e) => {
-    const step = 25;
+    const step = CELL_SIZE;
     if (e.key === "ArrowRight") move(step, 0);
     if (e.key === "ArrowLeft") move(-step, 0);
-    if (e.key === "ArrowUp") move(0, -step);
-    if (e.key === "ArrowDown") move(0, step);
+    if (e.key === "ArrowUp") move(0, step);
+    if (e.key === "ArrowDown") move(0, -step);
 }, { passive: false });
 
-let isDragging = false;
-let lastX, lastY;
-
-const onStart = (x, y) => {
+function onStartDrag(x, y) {
     isDragging = true;
     lastX = x;
     lastY = y;
-};
+}
 
-const onMove = (x, y) => {
+function onMoveDrag(x, y) {
     if (!isDragging) return;
     move(lastX - x, lastY - y);
     lastX = x;
     lastY = y;
-};
+}
 
-container.addEventListener("mousedown", (e) => onStart(e.clientX, e.clientY));
-container.addEventListener("mousemove", (e) => onMove(e.clientX, e.clientY));
+const getDistance = (x, y) => Math.sqrt(Math.pow(x.clientX - y.clientX, 2) + Math.pow(x.clientY - y.clientY, 2));
+
+let clientX = 0, clientY = 0;
+
+container.addEventListener("mousedown", (e) => onStartDrag(e.clientX, e.clientY));
+container.addEventListener("mousemove", (e) => onMoveDrag(clientX = e.clientX, clientY = e.clientY));
 container.addEventListener("mouseup", () => (isDragging = false));
 
+/* DEBUG */
+container.addEventListener("wheel", (e) => {
+    allGrid(eraseCell, true);
+
+    const rect = container.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const startX = mouseX / CELL_SIZE + offsetX;
+    const startY = mouseY / CELL_SIZE + offsetY;
+
+    if (e.deltaY > 0) {
+        scale = Math.min(scale * 1.1, 2);
+    } else if (e.deltaY < 0) {
+        scale = Math.max(scale * 0.9, 0.5);
+    }
+    
+    //! Capisci se fare così (brutto) o mettendo max/min alla cella (non so se comporta problemi poi con offset e varie, anche se al momento lo uso solo qua)
+    CELL_SIZE = Math.max(20, Math.min(80, CELL_SIZE * scale));
+
+    const endX = mouseX / CELL_SIZE;
+    const endY = mouseY / CELL_SIZE;
+
+    offsetX = startX - endX;
+    offsetY = startY - endY;
+
+    updateGridDimension();
+    allGrid(renderCell);
+}, { passive: false });
+
+/* DEBUG */
+window.addEventListener("keydown", (e) => {
+    const rect = container.getBoundingClientRect();
+    const mouseX = clientX - rect.left;
+    const mouseY = clientY - rect.top;
+    const startX = mouseX / CELL_SIZE + offsetX;
+    const startY = mouseY / CELL_SIZE + offsetY;
+
+    if (e.key == "d") {
+        CELL_SIZE = 60;
+    } else if (e.key == "a") {
+        CELL_SIZE = 20;
+    } else if (e.key == "s") {
+        CELL_SIZE = 40;
+    } else return;
+
+    allGrid(eraseCell, true);
+
+    const endX = mouseX / CELL_SIZE;
+    const endY = mouseY / CELL_SIZE;
+
+    offsetX = startX - endX;
+    offsetY = startY - endY;
+
+    updateGridDimension(CELL_SIZE);
+    allGrid(renderCell);
+}, { passive: false });
+
 container.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 1) onStart(e.touches[0].clientX, e.touches[0].clientY);
+    if (e.touches.length === 1) onStartDrag(e.touches[0].clientX, e.touches[0].clientY);
+    else if (e.touches.length === 2) {
+        pinchStartDistance = getDistance(e.touches[0], e.touches[1]);
+
+    }
 }, { passive: false });
 
 container.addEventListener("touchmove", (e) => {
-    if (e.touches.length === 1) onMove(e.touches[0].clientX, e.touches[0].clientY);
     e.preventDefault();
+    if (e.touches.length === 1) onMoveDrag(e.touches[0].clientX, e.touches[0].clientY);
+    else if (e.touches.length === 2 && pinchStartDistance !== null) {
+        allGrid(eraseCell, true);
+
+        const rect = container.getBoundingClientRect();
+        const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+        const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+
+        const startX = centerX / CELL_SIZE + offsetX;
+        const startY = centerY / CELL_SIZE + offsetY;
+
+        scale = getDistance(e.touches[0], e.touches[1]) / pinchStartDistance;
+        CELL_SIZE = Math.max(10, Math.min(60, CELL_SIZE * scale));
+
+        const endX = centerX / CELL_SIZE;
+        const endY = centerY / CELL_SIZE;
+
+        offsetX = startX - endX;
+        offsetY = startY - endY;
+
+        updateGridDimension(CELL_SIZE);
+        allGrid(renderCell);
+    }
 }, { passive: false });
 
-container.addEventListener("touchend", () => (isDragging = false));
+container.addEventListener("touchend", (e) => {
+    isDragging = false;
+    if (e.touches.length < 2) {
+        pinchStartDistance = null;
+        scale = currentScale;
+    }
+});
+
+allGrid(initCell);
