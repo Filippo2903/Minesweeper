@@ -1,30 +1,35 @@
 const container = document.getElementById("game-container");
 const scoreContainer = document.getElementById("score-textbox");
+const style = window.getComputedStyle(scoreContainer.parentElement);
 
 const BOMB_SPAWN_PROBABILITY = 0.27;
 
-/** @type {HTMLDivElement[][]} */
-let cells = [];
+const CELL_SIZE = 40;
 
-let CELL_SIZE = 40;
 const BUFFER = 1;
-const BUFFER_FOR_DEBUG = 0;
-
-
-const style = window.getComputedStyle(scoreContainer.parentElement);
-let totalCols = Math.ceil(window.innerWidth / CELL_SIZE) + BUFFER;
-let totalRows = Math.ceil((window.innerHeight - scoreContainer.parentElement.offsetHeight - parseFloat(style.margin) * 2) / CELL_SIZE) + BUFFER;
-/* DEBUG */
-// let totalCols = Math.ceil(1200 / CELL_SIZE) + BUFFER;
-// let totalRows = Math.ceil(840 / CELL_SIZE) + BUFFER;
-
-let offsetX = 0;
-let offsetY = 0;
 
 const POINTS_PER_CELL = 100;
 const POINTS_PER_BOMB = -500;
 
 let score = 0;
+
+let isDragging = false;
+let lastX, lastY;
+
+let scale = 1;
+let pinchStartDistance = null;
+let pinchStartZoom;
+
+let actualCellSize = CELL_SIZE * scale;
+
+let totalCols = Math.ceil(window.innerWidth / actualCellSize) + BUFFER;
+let totalRows = Math.ceil((window.innerHeight - scoreContainer.parentElement.offsetHeight - parseFloat(style.margin) * 2) / actualCellSize) + BUFFER;
+
+let offsetX = 0;
+let offsetY = 0;
+
+/** @type {HTMLDivElement[][]} */
+let cells = [];
 
 const bombMap = new Map();
 const checkedCells = new Set();
@@ -33,11 +38,8 @@ const checkedZero = new Set();
 
 let firstClick = true;
 
-let isDragging = false;
-let lastX, lastY;
 
-let scale = 1, currentScale;
-let pinchStartDistance = null, pinchStartZoom;
+//TODO: UX "gameover", esplosione,...
 
 function getKey(x, y) {
     return `${x},${y}`;
@@ -49,6 +51,14 @@ function toGlobal(x, y) {
 
 function getGlobalKey(x, y) {
     return getKey(...toGlobal(x, y));
+}
+
+function surroundings(x, y, f) {
+    for (let j = y - 1; j <= y + 1; j++) {
+        for (let i = x - 1; i <= x + 1; i++) {
+            f(i, j);
+        }
+    }
 }
 
 function allGrid(f, onlyPrinted = false) {
@@ -66,85 +76,79 @@ function allGrid(f, onlyPrinted = false) {
     }
 }
 
-//? dovrei dare punti per le aree di 0?
-function setScore(points) {
-    score += points;
-    scoreContainer.innerHTML = score;
-}
-
-//? limited per ora inutile
-function surroundings(x, y, f, limited = false) {
-    const startY = limited ? Math.max(0, y - 1) : y - 1;
-    const endY = limited ? Math.min(y + 1, totalRows - 1) : y + 1;
-    const startX = limited ? Math.max(0, x - 1) : x - 1;
-    const endX = limited ? Math.min(x + 1, totalCols - 1) : x + 1;
-
-    for (let j = startY; j <= endY; j++) {
-        for (let i = startX; i <= endX; i++) {
-            f(i, j);
-        }
-    }
-}
-
 function initCell(x, y) {
     if (cells[y] && cells[y][x] !== undefined) return;
 
     const cell = document.createElement("div");
     cell.className = "cell";
 
-    cell.style.left = `${(x + BUFFER_FOR_DEBUG) * CELL_SIZE}px`;
-    cell.style.top = `${(y + BUFFER_FOR_DEBUG) * CELL_SIZE}px`;
+    cell.style.left = `${x * actualCellSize}px`;
+    cell.style.top = `${y * actualCellSize}px`;
 
-    cell.style.width = `${CELL_SIZE}px`;
-    cell.style.height = `${CELL_SIZE}px`;
+    cell.style.width = `${actualCellSize}px`;
+    cell.style.height = `${actualCellSize}px`;
     cell.style.fontSize = `${CELL_SIZE * 0.6}px`;
 
-    if (!bombMap.has(getGlobalKey(x, y))) maybeGenerateBomb(x, y);
-
-    const key = getGlobalKey(x, y);
     cell.onclick = () => {
         if (isDragging) return;
         if (firstClick) {
             clearZone(x, y);
-            showCell(x, y);
+            revealCell(x, y);
             firstClick = false;
             return;
         }
 
-        if (!checkedCells.has(key))
+        const key = getGlobalKey(x, y);
+        if (!checkedCells.has(key)) {
             toggleFlag(x, y);
-
-        else if (!bombMap.get(key))
+        } else if (!bombMap.get(key)) {
             completeSurroundings(x, y);
+        }
     };
 
     cell.oncontextmenu = (e) => {
         e.preventDefault();
+        const key = getGlobalKey(x, y);
         if (!checkedCells.has(key) && !flaggedCells.has(key)) {
-            showCell(x, y);
+            revealCell(x, y);
         }
     };
 
     container.appendChild(cell);
 
     (cells[y] ??= []).push(cell);
+
+    renderCell(x, y);
 }
 
-function maybeGenerateBomb(x, y) {
-    bombMap.set(getGlobalKey(x, y), Math.random() < BOMB_SPAWN_PROBABILITY);
+function eraseCell(x, y) {
+    const cell = cells[y][x];
+    cell.innerHTML = "";
+    cell.style.background = "var(--accent-color)";
 }
 
-function bombCount(x, y) {
-    let count = 0;
-    surroundings(x, y, (i, j) => {
-        const key = getGlobalKey(i, j);
-        if (!bombMap.has(key)) maybeGenerateBomb(i, j);
-        if (bombMap.get(key)) {
-            count++;
+function printCell(x, y) {
+    const key = getGlobalKey(x, y);
+
+    const cell = cells[y][x];
+
+    cell.style.background = "var(--border-color)";
+    cell.style.cursor = "default";
+
+    if (bombMap.get(key)) {
+        const img = document.createElement("img");
+        img.src = "assets/icon-explosion.svg";
+        img.width = actualCellSize * 0.9;
+        img.height = actualCellSize * 0.9;
+        if (cell.firstChild) {
+            cell.replaceChild(img, cell.firstChild);
+        } else {
+            cell.appendChild(img);
         }
-    });
+        return;
+    }
 
-    return count;
+    cell.textContent = bombCount(x, y) || "";
 }
 
 function writeFlag(x, y) {
@@ -154,9 +158,13 @@ function writeFlag(x, y) {
 
     const img = document.createElement("img");
     img.src = "assets/icon-flag.svg";
-    img.width = 35;
-    img.height = 35;
-    cell.appendChild(img);
+    img.width = actualCellSize * 0.9;
+    img.height = actualCellSize * 0.9;
+    if (cell.firstChild) {
+        cell.replaceChild(img, cell.firstChild);
+    } else {
+        cell.appendChild(img);
+    }
 }
 
 function toggleFlag(x, y) {
@@ -170,6 +178,22 @@ function toggleFlag(x, y) {
 
     flaggedCells.add(key);
     writeFlag(x, y);
+}
+
+function revealCell(x, y) {
+    const key = getGlobalKey(x, y);
+
+    setScore(bombMap.get(key) ? POINTS_PER_BOMB : POINTS_PER_CELL);
+
+    const count = bombCount(x, y);
+    if (count === 0) {
+        revealConnectedZeros(x, y);
+        return;
+    }
+
+    if (!checkedCells.has(key)) checkedCells.add(key);
+
+    printCell(x, y);
 }
 
 function revealConnectedZeros(x, y) {
@@ -200,48 +224,6 @@ function revealConnectedZeros(x, y) {
     }
 }
 
-function showCell(x, y) {
-    setScore(bombMap.get(getGlobalKey(x, y)) ? POINTS_PER_BOMB : POINTS_PER_CELL);
-
-    const count = bombCount(x, y);
-    if (count === 0) {
-        revealConnectedZeros(x, y);
-        return;
-    }
-
-    const key = getGlobalKey(x, y);
-    if (!checkedCells.has(key)) checkedCells.add(key);
-
-    printCell(x, y);
-}
-
-function printCell(x, y) {
-    const key = getGlobalKey(x, y);
-
-    const cell = cells[y][x];
-
-    cell.style.background = "var(--border-color)";
-    cell.style.cursor = "default";
-
-    if (bombMap.get(key)) {
-        const img = document.createElement("img");
-        img.src = "assets/icon-explosion.svg";
-        img.width = 35;
-        img.height = 35;
-        cell.appendChild(img);
-        return;
-    }
-
-    cell.textContent = bombCount(x, y) || "";
-}
-
-function clearZone(x, y) {
-    surroundings(...toGlobal(x, y), (i, j) => {
-        let key = getKey(i, j);
-        if (bombMap.get(key)) bombMap.set(key, false);
-    });
-}
-
 function completeSurroundings(x, y) {
     let hiddenCellCount = 0;
     let discoveredBombsCount = 0;
@@ -263,7 +245,7 @@ function completeSurroundings(x, y) {
             const neighborKey = getGlobalKey(i, j)
 
             if (!checkedCells.has(neighborKey) && !flaggedCells.has(neighborKey)) {
-                showCell(i, j);
+                revealCell(i, j);
                 discoveredCellsCount++;
             }
         });
@@ -276,29 +258,32 @@ function completeSurroundings(x, y) {
     }
 }
 
-function eraseCell(x, y) {
-    const cell = cells[y][x];
-    cell.innerHTML = "";
-    cell.style.background = "var(--accent-color)";
+function renderCell(x, y) {
+    const key = getGlobalKey(x, y);
+
+    if (!bombMap.has(key)) maybeGenerateBomb(x, y);
+
+    if (checkedCells.has(key)) {
+        printCell(x, y);
+    } else if (flaggedCells.has(key)) {
+        writeFlag(x, y);
+    }
 }
 
 function updateCellPosition(x, y) {
     const cell = cells[y][x];
     const fractionalOffsetX = (offsetX % 1 + 1) % 1;
     const fractionalOffsetY = (offsetY % 1 + 1) % 1;
-    cell.style.left = `${(x - fractionalOffsetX) * CELL_SIZE + BUFFER_FOR_DEBUG * 40}px`;
-    cell.style.top = `${(y - fractionalOffsetY) * CELL_SIZE + BUFFER_FOR_DEBUG * 40}px`;
+    cell.style.left = `${(x - fractionalOffsetX) * actualCellSize}px`;
+    cell.style.top = `${(y - fractionalOffsetY) * actualCellSize}px`;
 }
 
-function updateGridDimension() {
+function updateGridDimension(newCellSize) {
     const oldTotalCols = totalCols;
     const oldTotalRows = totalRows;
 
-    /* DEBUG */
-    // totalCols = Math.ceil(1200 / CELL_SIZE) + BUFFER;
-    // totalRows = Math.ceil(840 / CELL_SIZE) + BUFFER;
-    totalCols = Math.ceil(window.innerWidth / CELL_SIZE) + BUFFER;
-    totalRows = Math.ceil((window.innerHeight - scoreContainer.parentElement.offsetHeight - parseFloat(style.margin) * 2) / CELL_SIZE) + BUFFER;
+    totalCols = Math.ceil(window.innerWidth / newCellSize) + BUFFER;
+    totalRows = Math.ceil((window.innerHeight - scoreContainer.parentElement.offsetHeight - parseFloat(style.margin) * 2) / newCellSize) + BUFFER;
 
     if (oldTotalCols === totalCols && oldTotalRows === totalRows) return;
 
@@ -332,62 +317,53 @@ function updateGridDimension() {
 
     allGrid((x, y) => {
         const cell = cells[y][x];
-        cell.style.width = `${CELL_SIZE}px`;
-        cell.style.height = `${CELL_SIZE}px`;
-        cell.style.fontSize = `${CELL_SIZE * 0.6}px`;
+        cell.style.width = `${newCellSize}px`;
+        cell.style.height = `${newCellSize}px`;
+        cell.style.fontSize = `${newCellSize * 0.6}px`;
 
         updateCellPosition(x, y);
     });
 }
 
-function renderCell(x, y) {
-    const key = getGlobalKey(x, y);
-
-    if (!bombMap.has(key)) maybeGenerateBomb(x, y);
-
-    if (checkedCells.has(key)) {
-        printCell(x, y);
-    } else if (flaggedCells.has(key)) {
-        writeFlag(x, y);
-    }
+function maybeGenerateBomb(x, y) {
+    bombMap.set(getGlobalKey(x, y), Math.random() < BOMB_SPAWN_PROBABILITY);
 }
 
-/* DEBUG */
-function debug(x, y) {
-    const cell = cells[y][x];
-    const key = getGlobalKey(x, y);
+function bombCount(x, y) {
+    let count = 0;
+    surroundings(x, y, (i, j) => {
+        const key = getGlobalKey(i, j);
+        if (!bombMap.has(key)) maybeGenerateBomb(i, j);
+        if (bombMap.get(key)) {
+            count++;
+        }
+    });
 
-    cell.style.fontSize = "10px";
-    cell.textContent = key;
-    // if (bombMap.get(key)) {
-    //     cell.textContent = "b";
-    //     return;
-    // }
+    return count;
+}
 
-    // count = bombCount(...toGlobal(x, y));
+function clearZone(x, y) {
+    surroundings(x, y, (i, j) => {
+        let key = getGlobalKey(i, j);
+        if (bombMap.get(key)) bombMap.set(key, false);
+    });
+}
 
-    // if (count === 0) {
-    //     cell.textContent = "0";
-    // }
+//? dovrei dare punti per le aree di 0?
+function setScore(points) {
+    score += points;
+    scoreContainer.innerHTML = score;
 }
 
 function move(dx, dy) {
     allGrid(eraseCell, true);
 
-    offsetX += dx / CELL_SIZE;
-    offsetY += dy / CELL_SIZE;
+    offsetX += dx / actualCellSize;
+    offsetY += dy / actualCellSize;
 
     allGrid(updateCellPosition);
     requestAnimationFrame(() => allGrid(renderCell));
 }
-
-window.addEventListener("keydown", (e) => {
-    const step = CELL_SIZE;
-    if (e.key === "ArrowRight") move(step, 0);
-    if (e.key === "ArrowLeft") move(-step, 0);
-    if (e.key === "ArrowUp") move(0, step);
-    if (e.key === "ArrowDown") move(0, -step);
-}, { passive: false });
 
 function onStartDrag(x, y) {
     isDragging = true;
@@ -404,13 +380,13 @@ function onMoveDrag(x, y) {
 
 const getDistance = (x, y) => Math.sqrt(Math.pow(x.clientX - y.clientX, 2) + Math.pow(x.clientY - y.clientY, 2));
 
-let clientX = 0, clientY = 0;
 
+/* MOUSE HANDLER */
+// Non necessario se si vuole fare completamente mobile
 container.addEventListener("mousedown", (e) => onStartDrag(e.clientX, e.clientY));
-container.addEventListener("mousemove", (e) => onMoveDrag(clientX = e.clientX, clientY = e.clientY));
+container.addEventListener("mousemove", (e) => onMoveDrag(e.clientX,  e.clientY));
 container.addEventListener("mouseup", () => (isDragging = false));
 
-/* DEBUG */
 container.addEventListener("wheel", (e) => {
     allGrid(eraseCell, true);
 
@@ -418,56 +394,29 @@ container.addEventListener("wheel", (e) => {
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    const startX = mouseX / CELL_SIZE + offsetX;
-    const startY = mouseY / CELL_SIZE + offsetY;
+    const startX = mouseX / actualCellSize + offsetX;
+    const startY = mouseY / actualCellSize + offsetY;
 
     if (e.deltaY > 0) {
         scale = Math.min(scale * 1.1, 2);
     } else if (e.deltaY < 0) {
         scale = Math.max(scale * 0.9, 0.5);
     }
-    
-    //! Capisci se fare così (brutto) o mettendo max/min alla cella (non so se comporta problemi poi con offset e varie, anche se al momento lo uso solo qua)
-    CELL_SIZE = Math.max(20, Math.min(80, CELL_SIZE * scale));
 
-    const endX = mouseX / CELL_SIZE;
-    const endY = mouseY / CELL_SIZE;
+    actualCellSize = CELL_SIZE * scale;
 
-    offsetX = startX - endX;
-    offsetY = startY - endY;
-
-    updateGridDimension();
-    allGrid(renderCell);
-}, { passive: false });
-
-/* DEBUG */
-window.addEventListener("keydown", (e) => {
-    const rect = container.getBoundingClientRect();
-    const mouseX = clientX - rect.left;
-    const mouseY = clientY - rect.top;
-    const startX = mouseX / CELL_SIZE + offsetX;
-    const startY = mouseY / CELL_SIZE + offsetY;
-
-    if (e.key == "d") {
-        CELL_SIZE = 60;
-    } else if (e.key == "a") {
-        CELL_SIZE = 20;
-    } else if (e.key == "s") {
-        CELL_SIZE = 40;
-    } else return;
-
-    allGrid(eraseCell, true);
-
-    const endX = mouseX / CELL_SIZE;
-    const endY = mouseY / CELL_SIZE;
+    const endX = mouseX / actualCellSize;
+    const endY = mouseY / actualCellSize;
 
     offsetX = startX - endX;
     offsetY = startY - endY;
 
-    updateGridDimension(CELL_SIZE);
+    updateGridDimension(actualCellSize);
     allGrid(renderCell);
 }, { passive: false });
+/* MOUSE HANDLER */
 
+//TODO: debounce??
 container.addEventListener("touchstart", (e) => {
     if (e.touches.length === 1) onStartDrag(e.touches[0].clientX, e.touches[0].clientY);
     else if (e.touches.length === 2) {
@@ -486,19 +435,19 @@ container.addEventListener("touchmove", (e) => {
         const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
         const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
 
-        const startX = centerX / CELL_SIZE + offsetX;
-        const startY = centerY / CELL_SIZE + offsetY;
+        const startX = centerX / actualCellSize + offsetX;
+        const startY = centerY / actualCellSize + offsetY;
 
-        scale = getDistance(e.touches[0], e.touches[1]) / pinchStartDistance;
-        CELL_SIZE = Math.max(10, Math.min(60, CELL_SIZE * scale));
+        scale = Math.min(Math.max(getDistance(e.touches[0], e.touches[1]) / pinchStartDistance, 0.5), 2);
+        actualCellSize = CELL_SIZE * scale;
 
-        const endX = centerX / CELL_SIZE;
-        const endY = centerY / CELL_SIZE;
+        const endX = centerX / actualCellSize;
+        const endY = centerY / actualCellSize;
 
         offsetX = startX - endX;
         offsetY = startY - endY;
 
-        updateGridDimension(CELL_SIZE);
+        updateGridDimension(actualCellSize);
         allGrid(renderCell);
     }
 }, { passive: false });
@@ -507,8 +456,8 @@ container.addEventListener("touchend", (e) => {
     isDragging = false;
     if (e.touches.length < 2) {
         pinchStartDistance = null;
-        scale = currentScale;
     }
 });
+
 
 allGrid(initCell);
