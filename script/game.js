@@ -76,8 +76,32 @@ function allGrid(f, onlyPrinted = false) {
     }
 }
 
+function maybeGenerateBomb(x, y) {
+    bombMap.set(getGlobalKey(x, y), Math.random() < BOMB_SPAWN_PROBABILITY);
+}
+
+function bombCount(x, y) {
+    let count = 0;
+    surroundings(x, y, (i, j) => {
+        const key = getGlobalKey(i, j);
+        if (!bombMap.has(key)) maybeGenerateBomb(i, j);
+        if (bombMap.get(key)) {
+            count++;
+        }
+    });
+
+    return count;
+}
+
+function clearZone(x, y) {
+    surroundings(x, y, (i, j) => {
+        const key = getGlobalKey(i, j);
+        bombMap.set(key, false);
+    });
+}
+
 function initCell(x, y) {
-    if (cells[y] && cells[y][x] !== undefined) return;
+    if (cells[y]?.[x] !== undefined) return;
 
     const cell = document.createElement("div");
     cell.className = "cell";
@@ -87,7 +111,7 @@ function initCell(x, y) {
 
     cell.style.width = `${actualCellSize}px`;
     cell.style.height = `${actualCellSize}px`;
-    cell.style.fontSize = `${CELL_SIZE * 0.6}px`;
+    cell.style.fontSize = `${actualCellSize * 0.6}px`;
 
     cell.onclick = () => {
         if (isDragging) return;
@@ -140,6 +164,7 @@ function printCell(x, y) {
         img.src = "assets/icon-explosion.svg";
         img.width = actualCellSize * 0.9;
         img.height = actualCellSize * 0.9;
+        img.style.pointerEvents = "none";
         if (cell.firstChild) {
             cell.replaceChild(img, cell.firstChild);
         } else {
@@ -151,6 +176,21 @@ function printCell(x, y) {
     cell.textContent = bombCount(x, y) || "";
 }
 
+function revealCell(x, y) {
+    const key = getGlobalKey(x, y);
+
+    setScore(bombMap.get(key) ? POINTS_PER_BOMB : POINTS_PER_CELL);
+
+    const count = bombCount(x, y);
+    if (count === 0) {
+        revealConnectedZeros(x, y);
+        return;
+    }
+
+    if (!checkedCells.has(key)) checkedCells.add(key);
+    if (cells[y]?.[x] !== undefined) printCell(x, y);
+}
+
 function writeFlag(x, y) {
     const cell = cells[y][x];
 
@@ -160,6 +200,7 @@ function writeFlag(x, y) {
     img.src = "assets/icon-flag.svg";
     img.width = actualCellSize * 0.9;
     img.height = actualCellSize * 0.9;
+    img.style.pointerEvents = "none";
     if (cell.firstChild) {
         cell.replaceChild(img, cell.firstChild);
     } else {
@@ -177,23 +218,7 @@ function toggleFlag(x, y) {
     }
 
     flaggedCells.add(key);
-    writeFlag(x, y);
-}
-
-function revealCell(x, y) {
-    const key = getGlobalKey(x, y);
-
-    setScore(bombMap.get(key) ? POINTS_PER_BOMB : POINTS_PER_CELL);
-
-    const count = bombCount(x, y);
-    if (count === 0) {
-        revealConnectedZeros(x, y);
-        return;
-    }
-
-    if (!checkedCells.has(key)) checkedCells.add(key);
-
-    printCell(x, y);
+    if (cells[y]?.[x] !== undefined) writeFlag(x, y);
 }
 
 function revealConnectedZeros(x, y) {
@@ -208,7 +233,7 @@ function revealConnectedZeros(x, y) {
         if (checkedCells.has(key)) continue;
 
         checkedCells.add(key);
-        printCell(queueX, queueY);
+        if (cells[queueY]?.[queueX] !== undefined) printCell(queueX, queueY);
 
         const count = bombCount(queueX, queueY);
         iterations++;
@@ -325,30 +350,6 @@ function updateGridDimension(newCellSize) {
     });
 }
 
-function maybeGenerateBomb(x, y) {
-    bombMap.set(getGlobalKey(x, y), Math.random() < BOMB_SPAWN_PROBABILITY);
-}
-
-function bombCount(x, y) {
-    let count = 0;
-    surroundings(x, y, (i, j) => {
-        const key = getGlobalKey(i, j);
-        if (!bombMap.has(key)) maybeGenerateBomb(i, j);
-        if (bombMap.get(key)) {
-            count++;
-        }
-    });
-
-    return count;
-}
-
-function clearZone(x, y) {
-    surroundings(x, y, (i, j) => {
-        let key = getGlobalKey(i, j);
-        if (bombMap.get(key)) bombMap.set(key, false);
-    });
-}
-
 //? dovrei dare punti per le aree di 0?
 function setScore(points) {
     score += points;
@@ -384,7 +385,7 @@ const getDistance = (x, y) => Math.sqrt(Math.pow(x.clientX - y.clientX, 2) + Mat
 /* MOUSE HANDLER */
 // Non necessario se si vuole fare completamente mobile
 container.addEventListener("mousedown", (e) => onStartDrag(e.clientX, e.clientY));
-container.addEventListener("mousemove", (e) => onMoveDrag(e.clientX,  e.clientY));
+container.addEventListener("mousemove", (e) => onMoveDrag(e.clientX, e.clientY));
 container.addEventListener("mouseup", () => (isDragging = false));
 
 container.addEventListener("wheel", (e) => {
