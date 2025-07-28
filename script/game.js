@@ -9,7 +9,7 @@ const CELL_SIZE = 40;
 const BUFFER = 1;
 
 const POINTS_PER_CELL = 100;
-const POINTS_PER_BOMB = -500;
+const POINTS_PER_BOMB = -1000;
 
 let score = 0;
 
@@ -40,6 +40,9 @@ let firstClick = true;
 
 
 //TODO: UX "gameover", esplosione,...
+//? Zoom ha degli scatti, problemi all'offset probabilmente
+//? Dezoom ricomincia da 0 (pure zoom in)
+//? Bordi celle glitchati nello zoom
 
 function getKey(x, y) {
     return `${x},${y}`;
@@ -156,10 +159,10 @@ function printCell(x, y) {
 
     const cell = cells[y][x];
 
-    cell.style.background = "var(--border-color)";
     cell.style.cursor = "default";
-
+    
     if (bombMap.get(key)) {
+        cell.style.background = "red";
         const img = document.createElement("img");
         img.src = "assets/icon-explosion.svg";
         img.width = actualCellSize * 0.9;
@@ -173,6 +176,7 @@ function printCell(x, y) {
         return;
     }
 
+    cell.style.background = "var(--border-color)";
     cell.textContent = bombCount(x, y) || "";
 }
 
@@ -310,7 +314,10 @@ function updateGridDimension(newCellSize) {
     totalCols = Math.ceil(window.innerWidth / newCellSize) + BUFFER;
     totalRows = Math.ceil((window.innerHeight - scoreContainer.parentElement.offsetHeight - parseFloat(style.margin) * 2) / newCellSize) + BUFFER;
 
-    if (oldTotalCols === totalCols && oldTotalRows === totalRows) return;
+    if (oldTotalCols === totalCols && oldTotalRows === totalRows) {
+        allGrid(updateCellPosition);
+        return;
+    }
 
     if (oldTotalCols < totalCols || oldTotalRows < totalRows) {
         for (let j = 0; j < oldTotalRows; j++) {
@@ -439,7 +446,8 @@ container.addEventListener("touchmove", (e) => {
         const startX = centerX / actualCellSize + offsetX;
         const startY = centerY / actualCellSize + offsetY;
 
-        scale = Math.min(Math.max(getDistance(e.touches[0], e.touches[1]) / pinchStartDistance, 0.5), 2);
+        scale = Math.min(Math.max(scale * (getDistance(e.touches[0], e.touches[1]) / pinchStartDistance), 0.5), 2);
+
         actualCellSize = CELL_SIZE * scale;
 
         const endX = centerX / actualCellSize;
