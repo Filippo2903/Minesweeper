@@ -14,7 +14,11 @@ const POINTS_PER_BOMB = -1000;
 let score = 0;
 
 let isDragging = false;
+let prevX, prevY;
 let lastX, lastY;
+let velocityX = 0, velocityY = 0;
+let momentumRafID = null;
+let prevTime;
 
 let scale = 1;
 let pinchStartDistance = null;
@@ -25,8 +29,7 @@ let actualCellSize = CELL_SIZE * scale;
 let totalCols = Math.ceil(window.innerWidth / actualCellSize) + BUFFER;
 let totalRows = Math.ceil((window.innerHeight - scoreContainer.parentElement.offsetHeight - parseFloat(style.margin) * 2) / actualCellSize) + BUFFER;
 
-let offsetX = 0;
-let offsetY = 0;
+let offsetX = 0, offsetY = 0;
 
 /** @type {HTMLDivElement[][]} */
 let cells = [];
@@ -40,9 +43,10 @@ let firstClick = true;
 
 
 //TODO: UX "gameover", esplosione,...
-//? Zoom ha degli scatti, problemi all'offset probabilmente
-//? Dezoom ricomincia da 0 (pure zoom in)
-//? Bordi celle glitchati nello zoom
+
+function isInGrid(x, y) {
+    return cells[y]?.[x] !== undefined;
+}
 
 function getKey(x, y) {
     return `${x},${y}`;
@@ -96,6 +100,17 @@ function bombCount(x, y) {
     return count;
 }
 
+function handleExplosion(x, y) {
+    const oldCellSize = actualCellSize;
+    actualCellSize = window.innerWidth / 4;
+
+    zoom(x * oldCellSize, y * oldCellSize, oldCellSize, actualCellSize);
+    allGrid(eraseCell, true);
+    offsetX = x - (totalCols - BUFFER) / 2;
+    offsetY = y - (totalRows - BUFFER) / 2;
+    allGrid(renderCell);
+}
+
 function clearZone(x, y) {
     surroundings(x, y, (i, j) => {
         const key = getGlobalKey(i, j);
@@ -104,7 +119,7 @@ function clearZone(x, y) {
 }
 
 function initCell(x, y) {
-    if (cells[y]?.[x] !== undefined) return;
+    if (isInGrid(x, y)) return;
 
     const cell = document.createElement("div");
     cell.className = "cell";
@@ -144,8 +159,6 @@ function initCell(x, y) {
     container.appendChild(cell);
 
     (cells[y] ??= []).push(cell);
-
-    renderCell(x, y);
 }
 
 function eraseCell(x, y) {
@@ -154,28 +167,36 @@ function eraseCell(x, y) {
     cell.style.background = "var(--accent-color)";
 }
 
-function printCell(x, y) {
-    const key = getGlobalKey(x, y);
+function addImage(cell, imagePath) {
+    const img = document.createElement("img");
+    img.src = imagePath;
+    img.width = actualCellSize * 0.9;
+    img.height = actualCellSize * 0.9;
+    img.style.pointerEvents = "none";
 
+    if (cell.firstChild) {
+        cell.replaceChild(img, cell.firstChild);
+    } else {
+        cell.appendChild(img);
+    }
+}
+
+function printBomb(x, y) {
     const cell = cells[y][x];
 
-    cell.style.cursor = "default";
-    
-    if (bombMap.get(key)) {
-        cell.style.background = "red";
-        const img = document.createElement("img");
-        img.src = "assets/icon-explosion.svg";
-        img.width = actualCellSize * 0.9;
-        img.height = actualCellSize * 0.9;
-        img.style.pointerEvents = "none";
-        if (cell.firstChild) {
-            cell.replaceChild(img, cell.firstChild);
-        } else {
-            cell.appendChild(img);
-        }
-        return;
-    }
+    cell.style.background = "red";
+    addImage(cell, "assets/icon-explosion.svg");
+}
 
+function printFlag(x, y) {
+    const cell = cells[y][x];
+
+    cell.style.background = "var(--text-color)";
+    addImage(cell, "assets/icon-flag.svg")
+}
+
+function printCell(x, y) {
+    const cell = cells[y][x];
     cell.style.background = "var(--border-color)";
     cell.textContent = bombCount(x, y) || "";
 }
@@ -192,23 +213,13 @@ function revealCell(x, y) {
     }
 
     if (!checkedCells.has(key)) checkedCells.add(key);
-    if (cells[y]?.[x] !== undefined) printCell(x, y);
-}
-
-function writeFlag(x, y) {
-    const cell = cells[y][x];
-
-    cell.style.background = "var(--text-color)";
-
-    const img = document.createElement("img");
-    img.src = "assets/icon-flag.svg";
-    img.width = actualCellSize * 0.9;
-    img.height = actualCellSize * 0.9;
-    img.style.pointerEvents = "none";
-    if (cell.firstChild) {
-        cell.replaceChild(img, cell.firstChild);
-    } else {
-        cell.appendChild(img);
+    if (isInGrid(x, y)) {
+        if (bombMap.get(key)) {
+            printBomb(x, y);
+            //TODO: handleExplosion(x, y);
+        } else {
+            printCell(x, y);
+        }
     }
 }
 
@@ -222,7 +233,7 @@ function toggleFlag(x, y) {
     }
 
     flaggedCells.add(key);
-    if (cells[y]?.[x] !== undefined) writeFlag(x, y);
+    if (isInGrid(x, y)) printFlag(x, y);
 }
 
 function revealConnectedZeros(x, y) {
@@ -237,7 +248,7 @@ function revealConnectedZeros(x, y) {
         if (checkedCells.has(key)) continue;
 
         checkedCells.add(key);
-        if (cells[queueY]?.[queueX] !== undefined) printCell(queueX, queueY);
+        if (isInGrid(queueX, queueY)) printCell(queueX, queueY);
 
         const count = bombCount(queueX, queueY);
         iterations++;
@@ -293,9 +304,13 @@ function renderCell(x, y) {
     if (!bombMap.has(key)) maybeGenerateBomb(x, y);
 
     if (checkedCells.has(key)) {
-        printCell(x, y);
+        if (bombMap.get(key)) {
+            printBomb(x, y);
+        } else {
+            printCell(x, y);
+        }
     } else if (flaggedCells.has(key)) {
-        writeFlag(x, y);
+        printFlag(x, y);
     }
 }
 
@@ -363,107 +378,205 @@ function setScore(points) {
     scoreContainer.innerHTML = score;
 }
 
-function move(dx, dy) {
-    allGrid(eraseCell, true);
+function panning(dx, dy) {
+    const prePanOffsetX = Math.floor(offsetX);
+    const prePanOffsetY = Math.floor(offsetY);
 
     offsetX += dx / actualCellSize;
     offsetY += dy / actualCellSize;
 
     allGrid(updateCellPosition);
-    requestAnimationFrame(() => allGrid(renderCell));
+
+    let deltaX = Math.floor(offsetX - prePanOffsetX);
+    let deltaY = Math.floor(offsetY - prePanOffsetY);
+
+    if (deltaX !== 0 || deltaY !== 0) {
+        for (let j = -Math.abs(deltaY); j <= totalRows + Math.abs(deltaY) + 1; j++) {
+            for (let i = -Math.abs(deltaX); i <= totalCols + Math.abs(deltaX) + 1; i++) {
+                const key = getGlobalKey(i, j);
+                if (checkedCells.has(key) || flaggedCells.has(key)) {
+                    if (isInGrid(i, j)) {
+                        renderCell(i, j);
+                    }
+
+                    deltaX = Math.floor(offsetX - prePanOffsetX);
+                    deltaY = Math.floor(offsetY - prePanOffsetY);
+                    const eraseKey = getGlobalKey(i + deltaX, j + deltaY);
+                    if (!checkedCells.has(eraseKey) && !flaggedCells.has(eraseKey)) {
+                        if (isInGrid(i + deltaX, j + deltaY)) {
+                            eraseCell(i + deltaX, j + deltaY);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-function onStartDrag(x, y) {
-    isDragging = true;
-    lastX = x;
-    lastY = y;
+function momentumPanning() {
+    let friction = 0.90;
+
+    function step() {
+        velocityX *= friction;
+        velocityY *= friction;
+        const deltaX = (velocityX * 0.016);
+        const deltaY = (velocityY * 0.016);
+
+        if (Math.abs(deltaX) < 0.01 * actualCellSize && Math.abs(deltaY) < 0.01 * actualCellSize) return;
+
+        panning(deltaX, deltaY);
+        momentumRafID = requestAnimationFrame(step);
+    }
+
+    momentumRafID = requestAnimationFrame(step);
 }
 
-function onMoveDrag(x, y) {
-    if (!isDragging) return;
-    move(lastX - x, lastY - y);
-    lastX = x;
-    lastY = y;
+function zoom(centerX, centerY, oldCellSize, newCellSize) {
+    allGrid(eraseCell, true);
+
+    const startX = centerX / oldCellSize + offsetX;
+    const startY = centerY / oldCellSize + offsetY;
+
+    const endX = centerX / newCellSize;
+    const endY = centerY / newCellSize;
+
+    offsetX = startX - endX;
+    offsetY = startY - endY;
+
+    updateGridDimension(newCellSize);
+    allGrid(renderCell);
 }
 
 const getDistance = (x, y) => Math.sqrt(Math.pow(x.clientX - y.clientX, 2) + Math.pow(x.clientY - y.clientY, 2));
 
 
 /* MOUSE HANDLER */
-// Non necessario se si vuole fare completamente mobile
-container.addEventListener("mousedown", (e) => onStartDrag(e.clientX, e.clientY));
-container.addEventListener("mousemove", (e) => onMoveDrag(e.clientX, e.clientY));
-container.addEventListener("mouseup", () => (isDragging = false));
+container.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    velocityX = 0;
+    velocityY = 0;
+    prevTime = performance.now();
+    cancelAnimationFrame(momentumRafID);
+});
+
+container.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+
+    const now = performance.now();
+    const dt = (now - prevTime) / 1000;
+    prevTime = now;
+
+    const dx = lastX - e.clientX;
+    const dy = lastY - e.clientY;
+
+    velocityX = Math.max(-2000, Math.min(2000, dx / dt));
+    velocityY = Math.max(-2000, Math.min(2000, dy / dt));
+
+    panning(dx, dy, false);
+
+    prevX = lastX;
+    prevY = lastY;
+
+    lastX = e.clientX;
+    lastY = e.clientY;
+});
+
+container.addEventListener('mouseup', (e) => {
+    if (!isDragging) return;
+    isDragging = false;
+
+    const dx = prevX - lastX;
+    const dy = prevY - lastY;
+
+    momentumPanning(dx, dy);
+});
 
 container.addEventListener("wheel", (e) => {
-    allGrid(eraseCell, true);
-
-    const rect = container.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    const startX = mouseX / actualCellSize + offsetX;
-    const startY = mouseY / actualCellSize + offsetY;
-
     if (e.deltaY > 0) {
         scale = Math.min(scale * 1.1, 2);
     } else if (e.deltaY < 0) {
         scale = Math.max(scale * 0.9, 0.5);
     }
 
+    const oldCellSize = actualCellSize;
     actualCellSize = CELL_SIZE * scale;
-
-    const endX = mouseX / actualCellSize;
-    const endY = mouseY / actualCellSize;
-
-    offsetX = startX - endX;
-    offsetY = startY - endY;
-
-    updateGridDimension(actualCellSize);
-    allGrid(renderCell);
+    const rect = container.getBoundingClientRect();
+    zoom(e.clientX - rect.left, e.clientY - rect.top, oldCellSize, actualCellSize);
 }, { passive: false });
 /* MOUSE HANDLER */
 
-//TODO: debounce??
-container.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 1) onStartDrag(e.touches[0].clientX, e.touches[0].clientY);
-    else if (e.touches.length === 2) {
-        pinchStartDistance = getDistance(e.touches[0], e.touches[1]);
+/* KEYBOARD HANDLER FOR DEBUG */
+window.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowRight") {
+        panning(-CELL_SIZE, 0);
+        // panning(0.1, 0);
+    }
+    if (e.key === "ArrowLeft") panning(CELL_SIZE, 0);
+    if (e.key === "ArrowUp") panning(0, CELL_SIZE);
+    if (e.key === "ArrowDown") panning(0, -CELL_SIZE);
+});
+/* KEYBOARD HANDLER FOR DEBUG */
 
+container.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) {
+        isDragging = true;
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+        velocityX = 0;
+        velocityY = 0;
+        prevTime = performance.now();
+        cancelAnimationFrame(momentumRafID);
+    } else if (e.touches.length === 2) {
+        pinchStartDistance = getDistance(e.touches[0], e.touches[1]);
     }
 }, { passive: false });
 
 container.addEventListener("touchmove", (e) => {
     e.preventDefault();
-    if (e.touches.length === 1) onMoveDrag(e.touches[0].clientX, e.touches[0].clientY);
-    else if (e.touches.length === 2 && pinchStartDistance !== null) {
-        allGrid(eraseCell, true);
+    if (e.touches.length === 1) {
+        if (!isDragging) return;
+        const now = performance.now();
+        const dt = (now - prevTime) / 1000;
+        prevTime = now;
 
+        const dx = lastX - e.touches[0].clientX;
+        const dy = lastY - e.touches[0].clientY;
+
+        velocityX = Math.max(-2000, Math.min(2000, dx / dt));
+        velocityY = Math.max(-2000, Math.min(2000, dy / dt));
+
+        panning(dx, dy);
+
+        prevX = lastX;
+        prevY = lastY;
+
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+    } else if (e.touches.length === 2 && pinchStartDistance !== null) {
         const rect = container.getBoundingClientRect();
         const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
         const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
 
-        const startX = centerX / actualCellSize + offsetX;
-        const startY = centerY / actualCellSize + offsetY;
-
+        //? Migliorabile?
         scale = Math.min(Math.max(scale * (getDistance(e.touches[0], e.touches[1]) / pinchStartDistance), 0.5), 2);
-
+        const oldCellSize = actualCellSize;
         actualCellSize = CELL_SIZE * scale;
 
-        const endX = centerX / actualCellSize;
-        const endY = centerY / actualCellSize;
-
-        offsetX = startX - endX;
-        offsetY = startY - endY;
-
-        updateGridDimension(actualCellSize);
-        allGrid(renderCell);
+        zoom(centerX, centerY, oldCellSize, actualCellSize);
     }
 }, { passive: false });
 
 container.addEventListener("touchend", (e) => {
-    isDragging = false;
-    if (e.touches.length < 2) {
+    if (e.touches.length === 0) {
+        isDragging = false;
+
+        const dx = prevX - lastX;
+        const dy = prevY - lastY;
+
+        momentumPanning(dx, dy);
+    } else if (e.touches.length < 2) {
         pinchStartDistance = null;
     }
 });
