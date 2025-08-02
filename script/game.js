@@ -68,16 +68,9 @@ function surroundings(x, y, f) {
     }
 }
 
-function allGrid(f, onlyPrinted = false) {
+function allGrid(f) {
     for (let y = 0; y < totalRows; y++) {
         for (let x = 0; x < totalCols; x++) {
-            if (onlyPrinted) {
-                const key = getGlobalKey(x, y);
-                if (!checkedCells.has(key) && !flaggedCells.has(key)) {
-                    continue;
-                }
-            }
-
             f(x, y);
         }
     }
@@ -105,7 +98,7 @@ function handleExplosion(x, y) {
     actualCellSize = window.innerWidth / 4;
 
     zoom(x * oldCellSize, y * oldCellSize, oldCellSize, actualCellSize);
-    allGrid(eraseCell, true);
+    // allGrid(eraseCell, true);
     offsetX = x - (totalCols - BUFFER) / 2;
     offsetY = y - (totalRows - BUFFER) / 2;
     allGrid(renderCell);
@@ -322,18 +315,14 @@ function updateCellPosition(x, y) {
     cell.style.top = `${(y - fractionalOffsetY) * actualCellSize}px`;
 }
 
-function updateGridDimension(newCellSize) {
-    const oldTotalCols = totalCols;
-    const oldTotalRows = totalRows;
+function updateCellDimension(x, y) {
+    const cell = cells[y][x];
+    cell.style.width = `${actualCellSize}px`;
+    cell.style.height = `${actualCellSize}px`;
+    cell.style.fontSize = `${actualCellSize * 0.6}px`;
+}
 
-    totalCols = Math.ceil(window.innerWidth / newCellSize) + BUFFER;
-    totalRows = Math.ceil((window.innerHeight - scoreContainer.parentElement.offsetHeight - parseFloat(style.margin) * 2) / newCellSize) + BUFFER;
-
-    if (oldTotalCols === totalCols && oldTotalRows === totalRows) {
-        allGrid(updateCellPosition);
-        return;
-    }
-
+function updateGridDimension(oldTotalCols, oldTotalRows) {
     if (oldTotalCols < totalCols || oldTotalRows < totalRows) {
         for (let j = 0; j < oldTotalRows; j++) {
             for (let i = oldTotalCols; i < totalCols; i++) {
@@ -346,7 +335,9 @@ function updateGridDimension(newCellSize) {
                 initCell(i, j);
             }
         }
-    } else if (oldTotalCols > totalCols || oldTotalRows > totalRows) {
+    }
+    
+    if (oldTotalCols > totalCols || oldTotalRows > totalRows) {
         for (let j = 0; j < totalRows; j++) {
             for (let i = totalCols; i < oldTotalCols; i++) {
                 cells[j][i].remove();
@@ -362,14 +353,6 @@ function updateGridDimension(newCellSize) {
         cells = cells.slice(0, totalRows).map(row => row.slice(0, totalCols));
     }
 
-    allGrid((x, y) => {
-        const cell = cells[y][x];
-        cell.style.width = `${newCellSize}px`;
-        cell.style.height = `${newCellSize}px`;
-        cell.style.fontSize = `${newCellSize * 0.6}px`;
-
-        updateCellPosition(x, y);
-    });
 }
 
 //? dovrei dare punti per le aree di 0?
@@ -431,26 +414,26 @@ function momentumPanning() {
     momentumRafID = requestAnimationFrame(step);
 }
 
-function zoom(centerX, centerY, oldCellSize, newCellSize) {
-    allGrid(eraseCell, true);
+function zoom(centerX, centerY, oldCellSize) {
+    allGrid(updateCellDimension);
 
-    const startX = centerX / oldCellSize + offsetX;
-    const startY = centerY / oldCellSize + offsetY;
+    const oldTotalCols = totalCols;
+    const oldTotalRows = totalRows;
 
-    const endX = centerX / newCellSize;
-    const endY = centerY / newCellSize;
+    totalCols = Math.ceil(window.innerWidth / actualCellSize) + BUFFER;
+    totalRows = Math.ceil((window.innerHeight - scoreContainer.parentElement.offsetHeight - parseFloat(style.margin) * 2) / actualCellSize) + BUFFER;
 
-    offsetX = startX - endX;
-    offsetY = startY - endY;
+    if (oldTotalCols !== totalCols || oldTotalRows !== totalRows) updateGridDimension(oldTotalCols, oldTotalRows);
 
-    updateGridDimension(newCellSize);
-    allGrid(renderCell);
+    const deltaX = centerX / oldCellSize * (actualCellSize - oldCellSize);
+    const deltaY = centerY / oldCellSize * (actualCellSize - oldCellSize);
+    panning(deltaX, deltaY);
 }
 
-const getDistance = (x, y) => Math.sqrt(Math.pow(x.clientX - y.clientX, 2) + Math.pow(x.clientY - y.clientY, 2));
+const getDistanceTouch = (x, y) => Math.sqrt(Math.pow(x.clientX - y.clientX, 2) + Math.pow(x.clientY - y.clientY, 2));
 
 
-/* MOUSE HANDLER */
+/* COMPUTER HANDLER FOR DEBUG */
 container.addEventListener('mousedown', (e) => {
     isDragging = true;
     lastX = e.clientX;
@@ -505,19 +488,14 @@ container.addEventListener("wheel", (e) => {
     const rect = container.getBoundingClientRect();
     zoom(e.clientX - rect.left, e.clientY - rect.top, oldCellSize, actualCellSize);
 }, { passive: false });
-/* MOUSE HANDLER */
 
-/* KEYBOARD HANDLER FOR DEBUG */
 window.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowRight") {
-        panning(-CELL_SIZE, 0);
-        // panning(0.1, 0);
-    }
+    if (e.key === "ArrowRight") panning(-CELL_SIZE, 0);
     if (e.key === "ArrowLeft") panning(CELL_SIZE, 0);
     if (e.key === "ArrowUp") panning(0, CELL_SIZE);
     if (e.key === "ArrowDown") panning(0, -CELL_SIZE);
 });
-/* KEYBOARD HANDLER FOR DEBUG */
+/* COMPUTER HANDLER FOR DEBUG */
 
 container.addEventListener("touchstart", (e) => {
     if (e.touches.length === 1) {
@@ -529,7 +507,9 @@ container.addEventListener("touchstart", (e) => {
         prevTime = performance.now();
         cancelAnimationFrame(momentumRafID);
     } else if (e.touches.length === 2) {
-        pinchStartDistance = getDistance(e.touches[0], e.touches[1]);
+        isDragging = false;
+        pinchStartDistance = getDistanceTouch(e.touches[0], e.touches[1]);
+        pinchStartZoom = scale;
     }
 }, { passive: false });
 
@@ -559,25 +539,47 @@ container.addEventListener("touchmove", (e) => {
         const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
         const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
 
-        //? Migliorabile?
-        scale = Math.min(Math.max(scale * (getDistance(e.touches[0], e.touches[1]) / pinchStartDistance), 0.5), 2);
-        const oldCellSize = actualCellSize;
-        actualCellSize = CELL_SIZE * scale;
-
-        zoom(centerX, centerY, oldCellSize, actualCellSize);
+        const currentDistance = getDistanceTouch(e.touches[0], e.touches[1]);
+        const pinchRatio = currentDistance / pinchStartDistance;
+        
+        const zoomFactor = Math.pow(pinchRatio, 0.5);
+        let newScale = pinchStartZoom * zoomFactor;
+        
+        newScale = Math.max(0.3, Math.min(3.0, newScale));
+        
+        const scaleChange = Math.abs(newScale - scale);
+        if (scaleChange > 0.02) {
+            scale = newScale;
+            const oldCellSize = actualCellSize;
+            actualCellSize = CELL_SIZE * scale;
+            
+            zoom(centerX, centerY, oldCellSize);
+        }
     }
 }, { passive: false });
 
 container.addEventListener("touchend", (e) => {
     if (e.touches.length === 0) {
         isDragging = false;
-
-        const dx = prevX - lastX;
-        const dy = prevY - lastY;
-
-        momentumPanning(dx, dy);
-    } else if (e.touches.length < 2) {
         pinchStartDistance = null;
+        pinchStartZoom = null;
+
+        // Applica momentum solo se non stavamo facendo zoom
+        if (prevX !== undefined && prevY !== undefined) {
+            const dx = prevX - lastX;
+            const dy = prevY - lastY;
+            momentumPanning(dx, dy);
+        }
+    } else if (e.touches.length === 1) {
+        pinchStartDistance = null;
+        pinchStartZoom = null;
+        
+        isDragging = true;
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+        velocityX = 0;
+        velocityY = 0;
+        prevTime = performance.now();
     }
 });
 
