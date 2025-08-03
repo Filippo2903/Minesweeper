@@ -13,6 +13,9 @@ const POINTS_PER_BOMB = -1000;
 
 let score = 0;
 
+let easyDigging = true;
+let easyFlagging = false;
+
 let isDragging = false;
 let prevX, prevY;
 let lastX, lastY;
@@ -23,6 +26,7 @@ let prevTime;
 let scale = 1;
 let pinchStartDistance = null;
 let pinchStartZoom;
+let lastCenterX, lastCenterY;
 
 let actualCellSize = CELL_SIZE * scale;
 
@@ -43,6 +47,7 @@ let firstClick = true;
 
 
 //TODO: UX "gameover", esplosione,...
+//! BUG (probabilmente in completeSurroundings, forse handleExplosion) apre celle da tutt'altra parte, anche bombe
 
 function isInGrid(x, y) {
     return cells[y]?.[x] !== undefined;
@@ -95,13 +100,15 @@ function bombCount(x, y) {
 
 function handleExplosion(x, y) {
     const oldCellSize = actualCellSize;
-    actualCellSize = window.innerWidth / 4;
+    actualCellSize = window.innerWidth / 6;
 
-    zoom(x * oldCellSize, y * oldCellSize, oldCellSize, actualCellSize);
-    // allGrid(eraseCell, true);
-    offsetX = x - (totalCols - BUFFER) / 2;
-    offsetY = y - (totalRows - BUFFER) / 2;
-    allGrid(renderCell);
+    const cellX = (x + 0.5) * oldCellSize;
+    const cellY = (y + 0.5) * oldCellSize;
+    const centerX = (totalCols / 2) * oldCellSize;
+    const centerY = (totalRows / 2) * oldCellSize
+
+    zoom(cellX, cellY, oldCellSize);
+    panning(cellX - centerX, cellY - centerY);
 }
 
 function clearZone(x, y) {
@@ -272,7 +279,7 @@ function completeSurroundings(x, y) {
 
     const numBombs = Number(cells[y][x].innerHTML);
 
-    if (discoveredBombsCount >= numBombs) {
+    if (discoveredBombsCount >= numBombs && easyDigging) {
         let discoveredCellsCount = 0;
         surroundings(x, y, (i, j) => {
             const neighborKey = getGlobalKey(i, j)
@@ -282,7 +289,7 @@ function completeSurroundings(x, y) {
                 discoveredCellsCount++;
             }
         });
-    } else if (hiddenCellCount === numBombs - discoveredBombsCount) {
+    } else if (hiddenCellCount === numBombs - discoveredBombsCount && easyFlagging) {
         surroundings(x, y, (i, j) => {
             const key = getGlobalKey(i, j);
             if (!checkedCells.has(key) && !flaggedCells.has(key))
@@ -336,7 +343,7 @@ function updateGridDimension(oldTotalCols, oldTotalRows) {
             }
         }
     }
-    
+
     if (oldTotalCols > totalCols || oldTotalRows > totalRows) {
         for (let j = 0; j < totalRows; j++) {
             for (let i = totalCols; i < oldTotalCols; i++) {
@@ -457,7 +464,7 @@ container.addEventListener('mousemove', (e) => {
     velocityX = Math.max(-2000, Math.min(2000, dx / dt));
     velocityY = Math.max(-2000, Math.min(2000, dy / dt));
 
-    panning(dx, dy, false);
+    panning(dx, dy);
 
     prevX = lastX;
     prevY = lastY;
@@ -470,10 +477,9 @@ container.addEventListener('mouseup', (e) => {
     if (!isDragging) return;
     isDragging = false;
 
-    const dx = prevX - lastX;
-    const dy = prevY - lastY;
-
-    momentumPanning(dx, dy);
+    if (Math.abs(velocityX) > 10 || Math.abs(velocityY) > 10) {
+        momentumPanning();
+    }
 });
 
 container.addEventListener("wheel", (e) => {
@@ -502,12 +508,18 @@ container.addEventListener("touchstart", (e) => {
         isDragging = true;
         lastX = e.touches[0].clientX;
         lastY = e.touches[0].clientY;
+        prevX = lastX;
+        prevY = lastY;
         velocityX = 0;
         velocityY = 0;
         prevTime = performance.now();
         cancelAnimationFrame(momentumRafID);
-    } else if (e.touches.length === 2) {
+    }
+    if (e.touches.length === 2) {
         isDragging = false;
+        const rect = container.getBoundingClientRect();
+        lastCenterX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+        lastCenterY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
         pinchStartDistance = getDistanceTouch(e.touches[0], e.touches[1]);
         pinchStartZoom = scale;
     }
@@ -515,8 +527,16 @@ container.addEventListener("touchstart", (e) => {
 
 container.addEventListener("touchmove", (e) => {
     e.preventDefault();
+
     if (e.touches.length === 1) {
-        if (!isDragging) return;
+        if (!isDragging) {
+            isDragging = true;
+            lastX = e.touches[0].clientX;
+            lastY = e.touches[0].clientY;
+            prevTime = performance.now();
+            return;
+        }
+
         const now = performance.now();
         const dt = (now - prevTime) / 1000;
         prevTime = now;
@@ -524,8 +544,8 @@ container.addEventListener("touchmove", (e) => {
         const dx = lastX - e.touches[0].clientX;
         const dy = lastY - e.touches[0].clientY;
 
-        velocityX = Math.max(-2000, Math.min(2000, dx / dt));
-        velocityY = Math.max(-2000, Math.min(2000, dy / dt));
+        velocityX = Math.max(-2000, Math.min(2000, (prevX - e.touches[0].clientX) / dt));
+        velocityY = Math.max(-2000, Math.min(2000, (prevY - e.touches[0].clientY) / dt));
 
         panning(dx, dy);
 
@@ -534,25 +554,35 @@ container.addEventListener("touchmove", (e) => {
 
         lastX = e.touches[0].clientX;
         lastY = e.touches[0].clientY;
-    } else if (e.touches.length === 2 && pinchStartDistance !== null) {
+    }
+
+    if (e.touches.length === 2 && pinchStartDistance !== null) {
         const rect = container.getBoundingClientRect();
         const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
         const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
 
+        const dx = lastCenterX - centerX;
+        const dy = lastCenterY - centerY;
+
+        panning(dx, dy);
+
+        lastCenterX = centerX;
+        lastCenterY = centerY;
+
         const currentDistance = getDistanceTouch(e.touches[0], e.touches[1]);
         const pinchRatio = currentDistance / pinchStartDistance;
-        
+
         const zoomFactor = Math.pow(pinchRatio, 0.5);
         let newScale = pinchStartZoom * zoomFactor;
-        
+
         newScale = Math.max(0.3, Math.min(3.0, newScale));
-        
+
         const scaleChange = Math.abs(newScale - scale);
         if (scaleChange > 0.02) {
             scale = newScale;
             const oldCellSize = actualCellSize;
             actualCellSize = CELL_SIZE * scale;
-            
+
             zoom(centerX, centerY, oldCellSize);
         }
     }
@@ -560,21 +590,22 @@ container.addEventListener("touchmove", (e) => {
 
 container.addEventListener("touchend", (e) => {
     if (e.touches.length === 0) {
+        if (isDragging) {
+            momentumPanning();
+        }
+
         isDragging = false;
         pinchStartDistance = null;
         pinchStartZoom = null;
-
-        // Applica momentum solo se non stavamo facendo zoom
-        if (prevX !== undefined && prevY !== undefined) {
-            const dx = prevX - lastX;
-            const dy = prevY - lastY;
-            momentumPanning(dx, dy);
-        }
-    } else if (e.touches.length === 1) {
+    }
+    if (e.touches.length === 1) {
         pinchStartDistance = null;
         pinchStartZoom = null;
-        
+
         isDragging = true;
+        prevX = lastX;
+        prevY = lastY;
+
         lastX = e.touches[0].clientX;
         lastY = e.touches[0].clientY;
         velocityX = 0;
